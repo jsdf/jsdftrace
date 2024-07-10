@@ -14,7 +14,7 @@ export function generateImageBitmapsForText(
   }
   return new Map(
     strings.map((text) => {
-      context.font = "11px sans-serif"; // set the font+size before measuring
+      context.font = "16px sans-serif"; // set the font+size before measuring
       const metrics = context.measureText(text);
       canvas.width = metrics.width;
       // calculate the height of the text using advanced text metrics

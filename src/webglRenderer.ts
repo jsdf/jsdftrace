@@ -8,33 +8,49 @@ export type RenderableRect = {
   texture: WebGLTexture;
   textureImageSize: vec2;
   textureCoordinates: vec2[];
+  textureImagePieceRect: Rect;
 };
 const SIZE_OF_FLOAT32 = 4;
 const POSITION_COMPONENTS = 3;
 const RECT_VERTICES = 4;
 const RECT_INDICES = 6; // 2 triangles
 const COLOR_COMPONENTS = 4;
-let checkErrors = false;
+let checkErrors = true;
 
-// this renderer builds arrays of vertices and vertex colors each render
+const vsSource = `#version 300 es
 
-const vsSource = `
-    attribute vec4 aVertexPosition;
-    attribute vec4 aVertexColor;
-    attribute vec2 aTextureCoord;
+in vec4 aVertexPosition;
+in vec4 aVertexColor;
+in vec2 aTextureCoord; 
+in vec4 aRectDimensions;
+in vec4 aTexturePieceRect;
+in vec2 aTextureScaling;
 
-    uniform mat4 uModelViewMatrix;
-    uniform mat4 uProjectionMatrix; 
+uniform mat4 uModelViewMatrix;
+uniform mat4 uProjectionMatrix; 
+uniform sampler2D uSampler;
 
-    varying lowp vec4 vColor;
-    varying highp vec2 vTextureCoord; 
+out lowp vec4 vColor;
+out highp vec2 vTextureCoord; 
 
-    void main(void) {
-      gl_Position = uProjectionMatrix * uModelViewMatrix * aVertexPosition; 
-      vColor = aVertexColor;
-      vTextureCoord = aTextureCoord;
-    }
-  `;
+void main(void) {
+    gl_Position = uProjectionMatrix * uModelViewMatrix * aVertexPosition; 
+    vColor = aVertexColor;
+    vec2 totalTextureSize = vec2(textureSize(uSampler, 0));
+    // work out the ratio of the texture piece size to the rectangle size
+    // that we need to keep the texture piece in scale with the rectangle 
+    vColor = vec4(aTextureScaling.x,0.0,0.0,1.0);  
+
+
+    vec2 textureCoordScaling = aTextureScaling;
+    // offset the texture coordinates to the correct position in the texture atlas
+    // scale the texture coordinates to the rectangle size
+    // undo the offset of the texture piece in the texture atlas
+    // normalize texture coordinates
+    vTextureCoord = (((aTextureCoord - aTexturePieceRect.xy) * textureCoordScaling) + aTexturePieceRect.xy) / totalTextureSize; 
+ 
+}
+`;
 
 // TODO: rather than using gl_FragCoord we should be able to scale the texture coordinates
 // inversely to the view transform, so that as you zoom in, the texture scales down equally,
@@ -45,37 +61,41 @@ const vsSource = `
 // to the global coordinate system (e.g. ratio of pixels at default zoom level to vert-space units).
 
 // alternatively, we might be able to get more crisp pixels by using gl_FragCoord (pixel coordinates
-// in screen space) to sample the texture, combined with GL_TEXTURE_RECTANGLE textures, which
-// gives us access to sample the texture at texel coordinates rather than normalized coordinates.
+// in screen space) to sample the texture, combined with texture lookup converting to texel
+// coordinates rather (normalized coordinates scaled by the texture size).
 // - we would still need to calculate the screen space coordinates of the corner of the rectangle
 // we're pinning the texture to, so we can correctly offset the local texel coordinates to align
 // the texture with the rectangle.
 // - we would also need to know the position of the texture piece within the texture atlas,
 // - so we can correctly offset the texture coordinates to sample the correct piece of the texture.
-const fsSource = `
-    precision mediump float;
+const fsSource = `#version 300 es
+precision mediump float;
 
-    varying lowp vec4 vColor;
-    varying highp vec2 vTextureCoord;
+in lowp vec4 vColor;
+in highp vec2 vTextureCoord; 
 
-    uniform sampler2D uSampler;
-    uniform vec2 textureSize;  // Texture dimensions
+uniform sampler2D uSampler;
 
-    void main(void) { 
-      if (vTextureCoord.x>10.0) {
-        gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
-      // Calculate screen space coordinates
-        vec2 screenCoords = vTextureCoord * textureSize / vec2(gl_FragCoord.xy);
-        // TODO: doesn't seem to work correctly. do i also need to account for the ratio
-        // of the visible portion of the texture to the full texture size?
-        gl_FragColor = texture2D(uSampler, screenCoords);
-      } 
+out vec4 FragColor;
 
-      gl_FragColor = texture2D(uSampler, vTextureCoord);
-      // gl_FragColor = vec4(vTextureCoord.xy, 1.0, 1.0); // debug texture coordinates
+void main(void) { 
+    if (true) { 
+      // approach based on scaling texture coordinates inversely to the view transform
+      FragColor = texture(uSampler, vTextureCoord);
 
+    } else {
+        // Calculate screen space coordinates
+        ivec2 texSize = textureSize(uSampler, 0);
+
+        // approach based on screen space coordinates
+        // vec2 screenCoords = vTextureCoord * vec2(texSize) / vec2(gl_FragCoord.xy);
+        // FragColor = texture(uSampler, screenCoords);
+        
     }
-  `;
+    // FragColor = texture(uSampler, vTextureCoord);
+    FragColor = vColor;
+}
+`;
 
 //
 // Initialize a shader program, so WebGL knows how to draw our data
@@ -149,12 +169,14 @@ type ProgramInfo = {
     vertexPosition: number;
     vertexColor: number;
     textureCoord: number;
+    rectDimensions: number;
+    texturePieceRect: number;
+    textureScaling: number;
   };
   uniformLocations: {
     projectionMatrix: WebGLUniformLocation;
     modelViewMatrix: WebGLUniformLocation;
     texture: WebGLUniformLocation;
-    textureSize: WebGLUniformLocation;
   };
 };
 
@@ -284,6 +306,125 @@ export function initBuffers(
     checkErrors && checkGLError(gl, "setting vertexColor attribute pointer");
     gl.enableVertexAttribArray(programInfo.attribLocations.vertexColor);
     checkErrors && checkGLError(gl, "enabling vertexColor attribute");
+  }
+
+  // pass rect position and size in vertex coords to the fragment shader
+  const rectBuffer = gl.createBuffer();
+  if (!rectBuffer) {
+    throw new Error("unable to create rect buffer");
+  }
+  {
+    const numComponents = 4;
+    const type = gl.FLOAT;
+    const normalize = false;
+    const stride = numComponents * SIZE_OF_FLOAT32;
+    gl.bindBuffer(gl.ARRAY_BUFFER, rectBuffer);
+    const rectData = rects.flatMap((rect: RenderableRect) => [
+      rect.rect.position.x,
+      rect.rect.position.y,
+      rect.rect.size.x,
+      rect.rect.size.y,
+    ]);
+    if (programInfo.attribLocations.rectDimensions === -1) {
+      console.warn(
+        "rectDimensions attribute not found in shader, not enabling"
+      );
+    } else {
+      gl.vertexAttribPointer(
+        programInfo.attribLocations.rectDimensions,
+        numComponents,
+        type,
+        normalize,
+        stride,
+        0 // offset
+      );
+      gl.bufferData(
+        gl.ARRAY_BUFFER,
+        new Float32Array(rectData),
+        gl.STATIC_DRAW
+      );
+      checkErrors && checkGLError(gl, "setting bufferData to rect buffer");
+      gl.enableVertexAttribArray(programInfo.attribLocations.rectDimensions);
+      checkErrors && checkGLError(gl, "enabling rectDimensions attribute");
+    }
+  }
+
+  const texturePieceSizeBuffer = gl.createBuffer();
+  if (!texturePieceSizeBuffer) {
+    throw new Error("unable to create texture piece size buffer");
+  }
+  {
+    const numComponents = 4;
+    const type = gl.FLOAT;
+    const normalize = false;
+    const stride = numComponents * SIZE_OF_FLOAT32;
+    gl.bindBuffer(gl.ARRAY_BUFFER, texturePieceSizeBuffer);
+    const texturePieceRects = rects.flatMap((rect: RenderableRect) => [
+      // position of the texture piece in the texture atlas
+      rect.textureImagePieceRect.position.x,
+      rect.textureImagePieceRect.position.y,
+      // the size of the texture piece in the texture atlas
+      rect.textureImagePieceRect.size.x,
+      rect.textureImagePieceRect.size.y,
+    ]);
+    if (programInfo.attribLocations.texturePieceRect === -1) {
+      console.warn(
+        "texturePieceRect attribute not found in shader, not enabling"
+      );
+    } else {
+      gl.vertexAttribPointer(
+        programInfo.attribLocations.texturePieceRect,
+        numComponents,
+        type,
+        normalize,
+        stride,
+        0 // offset
+      );
+      gl.bufferData(
+        gl.ARRAY_BUFFER,
+        new Float32Array(texturePieceRects),
+        gl.STATIC_DRAW
+      );
+      checkErrors &&
+        checkGLError(gl, "setting bufferData to texturePieceRect buffer");
+      gl.enableVertexAttribArray(programInfo.attribLocations.texturePieceRect);
+      checkErrors && checkGLError(gl, "enabling texturePieceRect attribute");
+    }
+  }
+
+  const textureScalingBuffer = gl.createBuffer();
+  if (!textureScalingBuffer) {
+    throw new Error("unable to create texture scaling buffer");
+  }
+  {
+    const numComponents = 2;
+    const type = gl.FLOAT;
+    const normalize = false;
+    const stride = numComponents * SIZE_OF_FLOAT32;
+    gl.bindBuffer(gl.ARRAY_BUFFER, textureScalingBuffer);
+    const textureScaling = rects.flatMap((rect: RenderableRect) => [
+      1 / (rect.textureImagePieceRect.size.x / rect.rect.size.x),
+      1 / (rect.textureImagePieceRect.size.y / rect.rect.size.y),
+    ]);
+    console.log("textureScaling", textureScaling);
+
+    gl.vertexAttribPointer(
+      programInfo.attribLocations.textureScaling,
+      numComponents,
+      type,
+      normalize,
+      stride,
+      0 // offset
+    );
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array(textureScaling),
+      gl.STATIC_DRAW
+    );
+    checkErrors &&
+      checkGLError(gl, "setting bufferData to textureScaling buffer");
+    gl.enableVertexAttribArray(programInfo.attribLocations.textureScaling);
+    checkErrors && checkGLError(gl, "enabling textureScaling attribute");
   }
 
   const textureCoordBuffer = gl.createBuffer();
@@ -430,20 +571,13 @@ function drawScene(
 
   // enable the texture
   gl.activeTexture(gl.TEXTURE0);
-  const { texture, textureImageSize } = buffers.rects[0];
-  gl.bindTexture(gl.TEXTURE_2D, texture); //  TODO: bind the correct texture
+  // TODO: bind the correct texture, not just the first one, once the rendering is batched by texture
+  const { texture } = buffers.rects[0];
+  gl.bindTexture(gl.TEXTURE_2D, texture);
 
-  // gl.bindTexture(gl.TEXTURE_2D, checkerboardTexture);
   gl.uniform1i(
     programInfo.uniformLocations.texture,
     0 /* index of texture unit */
-  );
-
-  // Set the texture size uniform
-  gl.uniform2f(
-    programInfo.uniformLocations.textureSize,
-    textureImageSize[0],
-    textureImageSize[1]
   );
 
   // draw the rectangles
@@ -459,6 +593,18 @@ function drawScene(
 
   gl.bindVertexArray(null); // unbind the vao
   return drawCalls;
+}
+
+function getAttribLocationOrThrow(
+  gl: WebGL2RenderingContext,
+  program: WebGLProgram,
+  name: string
+): number {
+  const location = gl.getAttribLocation(program, name);
+  // if (location === -1) {
+  //   throw new Error(`unable to get attribute location for ${name}`);
+  // }
+  return location;
 }
 
 export function initWebGLRenderer(
@@ -478,9 +624,32 @@ export function initWebGLRenderer(
   const programInfo: ProgramInfo = {
     program: shaderProgram,
     attribLocations: {
-      vertexPosition: gl.getAttribLocation(shaderProgram, "aVertexPosition"),
-      vertexColor: gl.getAttribLocation(shaderProgram, "aVertexColor"),
-      textureCoord: gl.getAttribLocation(shaderProgram, "aTextureCoord"),
+      vertexPosition: getAttribLocationOrThrow(
+        gl,
+        shaderProgram,
+        "aVertexPosition"
+      ),
+      vertexColor: getAttribLocationOrThrow(gl, shaderProgram, "aVertexColor"),
+      textureCoord: getAttribLocationOrThrow(
+        gl,
+        shaderProgram,
+        "aTextureCoord"
+      ),
+      rectDimensions: getAttribLocationOrThrow(
+        gl,
+        shaderProgram,
+        "aRectDimensions"
+      ),
+      texturePieceRect: getAttribLocationOrThrow(
+        gl,
+        shaderProgram,
+        "aTexturePieceRect"
+      ),
+      textureScaling: getAttribLocationOrThrow(
+        gl,
+        shaderProgram,
+        "aTextureScaling"
+      ),
     },
     uniformLocations: {
       projectionMatrix: nullthrows(
@@ -490,11 +659,10 @@ export function initWebGLRenderer(
         gl.getUniformLocation(shaderProgram, "uModelViewMatrix")
       ),
       texture: nullthrows(gl.getUniformLocation(shaderProgram, "uSampler")),
-      textureSize: nullthrows(
-        gl.getUniformLocation(shaderProgram, "textureSize")
-      ),
     },
   };
+
+  checkErrors && checkGLError(gl, "initWebGLRenderer");
 
   let buffers: RectsRenderBuffers | null = null;
   return {
@@ -558,20 +726,29 @@ export function getRectTextureCoordinatesInTexture(
   const { x, y } = rect.position;
   const { x: width, y: height } = rect.size;
 
+  // normalized texture coordinates
+  // const textureCoordinates = [
+  //   vec2.fromValues(x / textureDimensions.width, y / textureDimensions.height), // top left
+  //   vec2.fromValues(
+  //     (x + width) / textureDimensions.width,
+  //     y / textureDimensions.height
+  //   ), // top right
+  //   vec2.fromValues(
+  //     x / textureDimensions.width,
+  //     (y + height) / textureDimensions.height
+  //   ), // bottom left
+  //   vec2.fromValues(
+  //     (x + width) / textureDimensions.width,
+  //     (y + height) / textureDimensions.height
+  //   ), // bottom right
+  // ];
+
+  // texel space texture coordinates
   const textureCoordinates = [
-    vec2.fromValues(x / textureDimensions.width, y / textureDimensions.height), // top left
-    vec2.fromValues(
-      (x + width) / textureDimensions.width,
-      y / textureDimensions.height
-    ), // top right
-    vec2.fromValues(
-      x / textureDimensions.width,
-      (y + height) / textureDimensions.height
-    ), // bottom left
-    vec2.fromValues(
-      (x + width) / textureDimensions.width,
-      (y + height) / textureDimensions.height
-    ), // bottom right
+    vec2.fromValues(x, y), // top left
+    vec2.fromValues(x + width, y), // top right
+    vec2.fromValues(x, y + height), // bottom left
+    vec2.fromValues(x + width, y + height), // bottom right
   ];
   return textureCoordinates;
 }

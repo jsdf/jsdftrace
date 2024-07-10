@@ -19,7 +19,7 @@ const gl = canvas.getContext("webgl2");
 if (!gl) {
   throw new Error("couldnt use webgl2");
 }
-const SPAN_HEIGHT = 20; //px
+const SPAN_HEIGHT = 40; //px
 
 const generateRandomLabel = (() => {
   const words = [
@@ -96,19 +96,25 @@ function range(start: number, end: number) {
 
 const renderer = initWebGLRenderer(gl);
 
-const rectInputs = range(0, 100).map(() => {
+const rectInputs = range(0, 10).map(() => {
   return {
     rect: new Rect({
-      position: { x: Math.random() * 0.7, y: Math.random() },
-      size: { x: 0.3, y: SPAN_HEIGHT / canvas.height },
+      position: {
+        x: (Math.random() - 0.5) * 10 * SPAN_HEIGHT * 10,
+        y: (Math.random() - 0.5) * SPAN_HEIGHT * 10,
+      },
+      size: { x: SPAN_HEIGHT * 10, y: SPAN_HEIGHT },
     }),
     label: generateRandomLabel(),
   };
 });
 
+console.log(rectInputs);
+
 const textureAtlases = createTextTextureAtlases(
   rectInputs.map((input) => input.label),
-  SPAN_HEIGHT // using a fixed height until i write the shader code to handle variable height with screen space texture sampling
+  null
+  //   SPAN_HEIGHT // using a fixed height until i write the shader code to handle variable height with screen space texture sampling
 );
 
 // display each texture atlas in a separate canvas for debugging
@@ -151,7 +157,12 @@ textureAtlases.forEach((textureAtlas, i) => {
 
 const labelsInTextureAtlases = new Map<
   string,
-  { texture: WebGLTexture; textureImageSize: vec2; coordinates: vec2[] }
+  {
+    texture: WebGLTexture;
+    textureImageSize: vec2;
+    coordinates: vec2[];
+    textureImagePieceRect: Rect;
+  }
 >();
 textureAtlases.forEach((textureAtlas) => {
   const webGLTextures = new Map();
@@ -169,6 +180,7 @@ textureAtlases.forEach((textureAtlas) => {
         textureAtlas.image.width,
         textureAtlas.image.height
       ),
+      textureImagePieceRect: rect,
     });
   });
 });
@@ -187,6 +199,7 @@ renderer.setRenderableRects(
         textureCoordinates: labelInAtlas.coordinates,
         texture: labelInAtlas.texture,
         textureImageSize: labelInAtlas.textureImageSize,
+        textureImagePieceRect: labelInAtlas.textureImagePieceRect,
       };
     })
 );
@@ -218,6 +231,13 @@ function animationLoop() {
     transformationMatrix, // destination matrix
     transformationMatrix, // matrix to scale
     [options.scale.x, options.scale.y, options.scale.z] // scaling vector
+  );
+
+  // vertex positions are in pixels, scale to NDC
+  mat4.scale(
+    transformationMatrix, // destination matrix
+    transformationMatrix, // matrix to scale
+    [1 / canvas.width, 1 / canvas.height, 1] // scaling vector
   );
 
   renderer.render(transformationMatrix);
