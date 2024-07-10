@@ -39,6 +39,13 @@ export default class Rect {
   clone(): Rect {
     return new Rect({ position: this.position, size: this.size });
   }
+
+  toJSON() {
+    return {
+      position: this.position.toJSON(),
+      size: this.size.toJSON(),
+    };
+  }
 }
 
 function collision(a: Rect, b: Rect): boolean {
