@@ -21,8 +21,7 @@ const vsSource = `#version 300 es
 
 in vec4 aVertexPosition;
 in vec4 aVertexColor;
-in vec2 aTextureCoord; 
-in vec4 aRectDimensions;
+in vec2 aTextureCoord;  
 in vec4 aTexturePieceRect;
 in vec2 aTextureScaling;
 
@@ -38,17 +37,18 @@ void main(void) {
     vColor = aVertexColor;
     vec2 totalTextureSize = vec2(textureSize(uSampler, 0));
     // work out the ratio of the texture piece size to the rectangle size
-    // that we need to keep the texture piece in scale with the rectangle 
-    vColor = vec4(aTextureScaling.x,0.0,0.0,1.0);  
+    // that we need to keep the texture piece in scale with the rectangle
 
-
-    vec2 textureCoordScaling = aTextureScaling;
+      // ???
+    // vec2 textureScalingForViewport = vec2(1.0,1.0) / (uProjectionMatrix * uModelViewMatrix * vec4(aTextureScaling, 0, 1)).xy;
+     
     // offset the texture coordinates to the correct position in the texture atlas
     // scale the texture coordinates to the rectangle size
     // undo the offset of the texture piece in the texture atlas
     // normalize texture coordinates
-    vTextureCoord = (((aTextureCoord - aTexturePieceRect.xy) * textureCoordScaling) + aTexturePieceRect.xy) / totalTextureSize; 
- 
+    // TODO: clamp to texture piece rect
+    vTextureCoord = (((aTextureCoord - aTexturePieceRect.xy) * aTextureScaling) + aTexturePieceRect.xy) / totalTextureSize; 
+    // vTextureCoord = aTextureCoord / totalTextureSize;
 }
 `;
 
@@ -78,22 +78,9 @@ uniform sampler2D uSampler;
 
 out vec4 FragColor;
 
-void main(void) { 
-    if (true) { 
+void main(void) {  
       // approach based on scaling texture coordinates inversely to the view transform
       FragColor = texture(uSampler, vTextureCoord);
-
-    } else {
-        // Calculate screen space coordinates
-        ivec2 texSize = textureSize(uSampler, 0);
-
-        // approach based on screen space coordinates
-        // vec2 screenCoords = vTextureCoord * vec2(texSize) / vec2(gl_FragCoord.xy);
-        // FragColor = texture(uSampler, screenCoords);
-        
-    }
-    // FragColor = texture(uSampler, vTextureCoord);
-    FragColor = vColor;
 }
 `;
 
@@ -166,12 +153,11 @@ function loadShader(gl: WebGL2RenderingContext, type: number, source: string) {
 type ProgramInfo = {
   program: WebGLProgram;
   attribLocations: {
-    vertexPosition: number;
-    vertexColor: number;
-    textureCoord: number;
-    rectDimensions: number;
-    texturePieceRect: number;
-    textureScaling: number;
+    aVertexPosition: number;
+    aVertexColor: number;
+    aTextureCoord: number;
+    aTexturePieceRect: number;
+    aTextureScaling: number;
   };
   uniformLocations: {
     projectionMatrix: WebGLUniformLocation;
@@ -220,6 +206,67 @@ export function rectsToBuffers(
   });
 }
 
+function createAndBindFloatAttribVertexArray(
+  gl: WebGL2RenderingContext,
+  name: string,
+  {
+    attribLocation,
+    dataArray,
+    numComponents,
+    numVertices,
+  }: {
+    attribLocation: number;
+    dataArray: number[];
+    numComponents: number;
+    numVertices: number;
+  }
+): WebGLBuffer | null {
+  if (attribLocation === -1) {
+    console.warn(
+      `${name} attribute not found in shader, skipping ${name} buffer creation`
+    );
+    return null;
+  }
+  // vertices that will be reused each render
+  const buffer = gl.createBuffer();
+  if (!buffer) {
+    throw new Error(`unable to create ${name} buffer`);
+  }
+  if (dataArray.length % numComponents !== 0) {
+    throw new Error(
+      `number of components in ${name} buffer data is not a multiple of ${numComponents}`
+    );
+  }
+  if (dataArray.length / numComponents !== numVertices) {
+    throw new Error(
+      `number of vertices in ${name} buffer data is not equal to ${numVertices}`
+    );
+  }
+  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(dataArray), gl.STATIC_DRAW);
+  checkErrors && checkGLError(gl, `setting bufferData to ${name} buffer`);
+  // Tell WebGL how to pull out the positions from the position
+  // buffer into the shader attribute
+  {
+    const type = gl.FLOAT;
+    const normalize = false;
+    const stride = numComponents * SIZE_OF_FLOAT32;
+    gl.vertexAttribPointer(
+      attribLocation,
+      numComponents,
+      type,
+      normalize,
+      stride,
+      0 // offset
+    );
+    checkErrors && checkGLError(gl, `setting ${name} attribute pointer`);
+    gl.enableVertexAttribArray(attribLocation);
+    checkErrors && checkGLError(gl, `enabling ${name} attribute`);
+  }
+
+  return buffer;
+}
+
 // whenever the geometry changes, we need to reinitialize the buffers
 // but then we'll reuse the buffers for each render call
 export function initBuffers(
@@ -238,10 +285,10 @@ export function initBuffers(
     rects: RenderableRect[];
   }
 ): RectsRenderBuffers {
-  console.log(
-    "gl.MAX_TEXTURE_IMAGE_UNITS:",
-    gl.getParameter(gl.MAX_TEXTURE_IMAGE_UNITS)
-  );
+  console.log("positions", positions);
+  console.log("colors", colors);
+  console.log("indices", indices);
+  console.log("rects", rects);
 
   const vao = gl.createVertexArray();
   if (!vao) {
@@ -249,215 +296,88 @@ export function initBuffers(
   }
   gl.bindVertexArray(vao);
 
+  const boundBuffers = [];
+
+  const numVertices = positions.length / POSITION_COMPONENTS;
+
   // vertices that will be reused each render
-  const positionBuffer = gl.createBuffer();
-  if (!positionBuffer) {
-    throw new Error("unable to create position buffer");
-  }
-  gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(positions), gl.STATIC_DRAW);
-  checkErrors && checkGLError(gl, "setting bufferData to position buffer");
-  // Tell WebGL how to pull out the positions from the position
-  // buffer into the shader vertexPosition attribute
-  {
-    const numComponents = POSITION_COMPONENTS;
-    const type = gl.FLOAT;
-    const normalize = false;
-    const stride = numComponents * SIZE_OF_FLOAT32;
-    gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-    gl.vertexAttribPointer(
-      programInfo.attribLocations.vertexPosition,
-      numComponents,
-      type,
-      normalize,
-      stride,
-      0 // offset
-    );
-    checkErrors && checkGLError(gl, "setting vertexPosition attribute pointer");
-    gl.enableVertexAttribArray(programInfo.attribLocations.vertexPosition);
-    checkErrors && checkGLError(gl, "enabling vertexPosition attribute");
-  }
+  boundBuffers.push(
+    createAndBindFloatAttribVertexArray(gl, "aPosition", {
+      attribLocation: programInfo.attribLocations.aVertexPosition,
+      dataArray: positions,
+      numComponents: POSITION_COMPONENTS,
+      numVertices,
+    })
+  );
+  boundBuffers.push(
+    createAndBindFloatAttribVertexArray(gl, "aColor", {
+      attribLocation: programInfo.attribLocations.aVertexColor,
+      dataArray: colors,
+      numComponents: COLOR_COMPONENTS,
+      numVertices,
+    })
+  );
 
-  // vertex colors that will be reused each render
-  const colorBuffer = gl.createBuffer();
-  if (!colorBuffer) {
-    throw new Error("unable to create color buffer");
-  }
-  gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(colors), gl.STATIC_DRAW);
-  checkErrors && checkGLError(gl, "setting bufferData to color buffer");
-
-  // Tell WebGL how to pull out the colors from the color buffer
-  // into the shader vertexColor attribute.
-  {
-    const numComponents = COLOR_COMPONENTS;
-    const type = gl.FLOAT;
-    const normalize = false;
-    const stride = numComponents * SIZE_OF_FLOAT32;
-    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
-    gl.vertexAttribPointer(
-      programInfo.attribLocations.vertexColor,
-      numComponents,
-      type,
-      normalize,
-      stride,
-      0 // offset
-    );
-    checkErrors && checkGLError(gl, "setting vertexColor attribute pointer");
-    gl.enableVertexAttribArray(programInfo.attribLocations.vertexColor);
-    checkErrors && checkGLError(gl, "enabling vertexColor attribute");
-  }
-
-  // pass rect position and size in vertex coords to the fragment shader
-  const rectBuffer = gl.createBuffer();
-  if (!rectBuffer) {
-    throw new Error("unable to create rect buffer");
-  }
-  {
-    const numComponents = 4;
-    const type = gl.FLOAT;
-    const normalize = false;
-    const stride = numComponents * SIZE_OF_FLOAT32;
-    gl.bindBuffer(gl.ARRAY_BUFFER, rectBuffer);
-    const rectData = rects.flatMap((rect: RenderableRect) => [
-      rect.rect.position.x,
-      rect.rect.position.y,
-      rect.rect.size.x,
-      rect.rect.size.y,
-    ]);
-    if (programInfo.attribLocations.rectDimensions === -1) {
-      console.warn(
-        "rectDimensions attribute not found in shader, not enabling"
+  const texturePieceRects: number[] = [];
+  rects.forEach((rect: RenderableRect) => {
+    // for each rect vert
+    for (let i = 0; i < RECT_VERTICES; i++) {
+      texturePieceRects.push(
+        // position of the texture piece in the texture atlas
+        rect.textureImagePieceRect.position.x,
+        rect.textureImagePieceRect.position.y,
+        // the size of the texture piece in the texture atlas
+        rect.textureImagePieceRect.size.x,
+        rect.textureImagePieceRect.size.y
       );
-    } else {
-      gl.vertexAttribPointer(
-        programInfo.attribLocations.rectDimensions,
-        numComponents,
-        type,
-        normalize,
-        stride,
-        0 // offset
-      );
-      gl.bufferData(
-        gl.ARRAY_BUFFER,
-        new Float32Array(rectData),
-        gl.STATIC_DRAW
-      );
-      checkErrors && checkGLError(gl, "setting bufferData to rect buffer");
-      gl.enableVertexAttribArray(programInfo.attribLocations.rectDimensions);
-      checkErrors && checkGLError(gl, "enabling rectDimensions attribute");
     }
-  }
+  });
+  boundBuffers.push(
+    createAndBindFloatAttribVertexArray(gl, "aTexturePieceRect", {
+      attribLocation: programInfo.attribLocations.aTexturePieceRect,
+      dataArray: texturePieceRects,
+      numComponents: 4,
+      numVertices,
+    })
+  );
 
-  const texturePieceSizeBuffer = gl.createBuffer();
-  if (!texturePieceSizeBuffer) {
-    throw new Error("unable to create texture piece size buffer");
-  }
-  {
-    const numComponents = 4;
-    const type = gl.FLOAT;
-    const normalize = false;
-    const stride = numComponents * SIZE_OF_FLOAT32;
-    gl.bindBuffer(gl.ARRAY_BUFFER, texturePieceSizeBuffer);
-    const texturePieceRects = rects.flatMap((rect: RenderableRect) => [
-      // position of the texture piece in the texture atlas
-      rect.textureImagePieceRect.position.x,
-      rect.textureImagePieceRect.position.y,
-      // the size of the texture piece in the texture atlas
-      rect.textureImagePieceRect.size.x,
-      rect.textureImagePieceRect.size.y,
-    ]);
-    if (programInfo.attribLocations.texturePieceRect === -1) {
-      console.warn(
-        "texturePieceRect attribute not found in shader, not enabling"
+  // TODO: figure out whats wrong with this causing it to give errors
+  // about the buffer being too small
+  const textureScaling: number[] = [];
+  rects.forEach((rect: RenderableRect) => {
+    // for each rect vert
+    for (let i = 0; i < RECT_VERTICES; i++) {
+      textureScaling.push(
+        1 / (rect.textureImagePieceRect.size.x / rect.rect.size.x),
+        1 / (rect.textureImagePieceRect.size.y / rect.rect.size.y)
       );
-    } else {
-      gl.vertexAttribPointer(
-        programInfo.attribLocations.texturePieceRect,
-        numComponents,
-        type,
-        normalize,
-        stride,
-        0 // offset
-      );
-      gl.bufferData(
-        gl.ARRAY_BUFFER,
-        new Float32Array(texturePieceRects),
-        gl.STATIC_DRAW
-      );
-      checkErrors &&
-        checkGLError(gl, "setting bufferData to texturePieceRect buffer");
-      gl.enableVertexAttribArray(programInfo.attribLocations.texturePieceRect);
-      checkErrors && checkGLError(gl, "enabling texturePieceRect attribute");
     }
-  }
+  });
+  console.log("textureScaling", textureScaling);
 
-  const textureScalingBuffer = gl.createBuffer();
-  if (!textureScalingBuffer) {
-    throw new Error("unable to create texture scaling buffer");
-  }
-  {
-    const numComponents = 2;
-    const type = gl.FLOAT;
-    const normalize = false;
-    const stride = numComponents * SIZE_OF_FLOAT32;
-    gl.bindBuffer(gl.ARRAY_BUFFER, textureScalingBuffer);
-    const textureScaling = rects.flatMap((rect: RenderableRect) => [
-      1 / (rect.textureImagePieceRect.size.x / rect.rect.size.x),
-      1 / (rect.textureImagePieceRect.size.y / rect.rect.size.y),
-    ]);
-    console.log("textureScaling", textureScaling);
+  boundBuffers.push(
+    createAndBindFloatAttribVertexArray(gl, "aTextureScaling", {
+      attribLocation: programInfo.attribLocations.aTextureScaling,
+      dataArray: textureScaling,
+      numComponents: 2,
+      numVertices,
+    })
+  );
 
-    gl.vertexAttribPointer(
-      programInfo.attribLocations.textureScaling,
-      numComponents,
-      type,
-      normalize,
-      stride,
-      0 // offset
-    );
-    gl.bufferData(
-      gl.ARRAY_BUFFER,
-      new Float32Array(textureScaling),
-      gl.STATIC_DRAW
-    );
-    checkErrors &&
-      checkGLError(gl, "setting bufferData to textureScaling buffer");
-    gl.enableVertexAttribArray(programInfo.attribLocations.textureScaling);
-    checkErrors && checkGLError(gl, "enabling textureScaling attribute");
-  }
+  // Create a buffer for the texture coordinates
 
-  const textureCoordBuffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, textureCoordBuffer);
   const textureCoordinates = rects.flatMap((rect: RenderableRect) =>
     rect.textureCoordinates.flatMap((coord: vec2) => [coord[0], coord[1]])
   );
   console.log({ textureCoordinates });
-  gl.bufferData(
-    gl.ARRAY_BUFFER,
-    new Float32Array(textureCoordinates),
-    gl.STATIC_DRAW
+  boundBuffers.push(
+    createAndBindFloatAttribVertexArray(gl, "textureCoord", {
+      attribLocation: programInfo.attribLocations.aTextureCoord,
+      dataArray: textureCoordinates,
+      numComponents: 2,
+      numVertices,
+    })
   );
-
-  // Tell WebGL how to pull out the texture coordinates from the textureCoordBuffer
-  {
-    const numComponents = 2;
-    const type = gl.FLOAT;
-    const normalize = false;
-    const stride = numComponents * SIZE_OF_FLOAT32;
-    gl.bindBuffer(gl.ARRAY_BUFFER, textureCoordBuffer);
-    gl.vertexAttribPointer(
-      programInfo.attribLocations.textureCoord,
-      numComponents,
-      type,
-      normalize,
-      stride,
-      0 // offset
-    );
-    checkErrors && checkGLError(gl, "setting textureCoord attribute pointer");
-    gl.enableVertexAttribArray(programInfo.attribLocations.textureCoord);
-    checkErrors && checkGLError(gl, "enabling textureCoord attribute");
-  }
 
   const indexBuffer = gl.createBuffer();
   if (!indexBuffer) {
@@ -469,14 +389,15 @@ export function initBuffers(
     new Uint16Array(indices),
     gl.STATIC_DRAW
   );
+  boundBuffers.push(indexBuffer);
 
   gl.bindVertexArray(null); // unbind the vao
 
   return {
     rects,
-    positionBuffer,
-    positionLength: positions.length,
-    colorBuffer,
+    boundBuffers: boundBuffers.filter(
+      (buffer) => buffer !== null
+    ) as WebGLBuffer[],
     vao,
   };
 }
@@ -485,16 +406,15 @@ export function releaseBuffers(
   gl: WebGL2RenderingContext,
   buffers: RectsRenderBuffers
 ) {
-  gl.deleteBuffer(buffers.positionBuffer);
-  gl.deleteBuffer(buffers.colorBuffer);
+  buffers.boundBuffers.forEach((buffer) => {
+    gl.deleteBuffer(buffer);
+  });
   gl.deleteVertexArray(buffers.vao);
 }
 
 export type RectsRenderBuffers = {
   rects: RenderableRect[];
-  positionBuffer: WebGLBuffer;
-  positionLength: number;
-  colorBuffer: WebGLBuffer;
+  boundBuffers: WebGLBuffer[];
   vao: WebGLVertexArrayObject;
 };
 
@@ -601,9 +521,10 @@ function getAttribLocationOrThrow(
   name: string
 ): number {
   const location = gl.getAttribLocation(program, name);
-  // if (location === -1) {
-  //   throw new Error(`unable to get attribute location for ${name}`);
-  // }
+  if (location === -1) {
+    // throw new Error(`unable to get attribute location for ${name}`);
+    console.warn(`unable to get attribute location for ${name}`);
+  }
   return location;
 }
 
@@ -624,28 +545,23 @@ export function initWebGLRenderer(
   const programInfo: ProgramInfo = {
     program: shaderProgram,
     attribLocations: {
-      vertexPosition: getAttribLocationOrThrow(
+      aVertexPosition: getAttribLocationOrThrow(
         gl,
         shaderProgram,
         "aVertexPosition"
       ),
-      vertexColor: getAttribLocationOrThrow(gl, shaderProgram, "aVertexColor"),
-      textureCoord: getAttribLocationOrThrow(
+      aVertexColor: getAttribLocationOrThrow(gl, shaderProgram, "aVertexColor"),
+      aTextureCoord: getAttribLocationOrThrow(
         gl,
         shaderProgram,
         "aTextureCoord"
       ),
-      rectDimensions: getAttribLocationOrThrow(
-        gl,
-        shaderProgram,
-        "aRectDimensions"
-      ),
-      texturePieceRect: getAttribLocationOrThrow(
+      aTexturePieceRect: getAttribLocationOrThrow(
         gl,
         shaderProgram,
         "aTexturePieceRect"
       ),
-      textureScaling: getAttribLocationOrThrow(
+      aTextureScaling: getAttribLocationOrThrow(
         gl,
         shaderProgram,
         "aTextureScaling"
