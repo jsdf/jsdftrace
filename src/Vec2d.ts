@@ -2,9 +2,14 @@ export type Vec2dInit = { x?: number; y?: number };
 export default class Vec2d {
   x: number;
   y: number;
-  constructor(init: Vec2dInit = {}) {
-    this.x = init.x ?? 0;
-    this.y = init.y ?? 0;
+  constructor(init: Vec2dInit | number = {}, y?: number) {
+    if (typeof init === "number") {
+      this.x = init;
+      this.y = y ?? init;
+    } else {
+      this.x = init.x ?? 0;
+      this.y = init.y ?? 0;
+    }
   }
 
   clone() {

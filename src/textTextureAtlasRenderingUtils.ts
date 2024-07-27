@@ -30,7 +30,7 @@ export function generateImageBitmapsForText(
       console.log("canvas.width", canvas.width, "canvas.height", canvas.height);
 
       context.clearRect(0, 0, canvas.width, canvas.height);
-      context.fillStyle = "orange";
+      context.fillStyle = "transparent";
       context.fillRect(0, 0, canvas.width, canvas.height);
       context.fillStyle = "black";
       context.font = "11px sans-serif"; // this was reset by the clearRect

@@ -1,13 +1,15 @@
 import { mat4, vec2 } from "gl-matrix";
 import { nullthrows } from "./nullthrows";
 import Rect from "./Rect";
+import vertexShaderSource from "./vertexShader.glsl";
+import fragmentShaderSource from "./fragmentShader.glsl";
+import Vec2d from "./Vec2d";
 
 export type RenderableRect = {
   rect: Rect;
   backgroundColor: number[];
   texture: WebGLTexture;
-  textureImageSize: vec2;
-  textureCoordinates: vec2[];
+  textureImageSize: Vec2d;
   textureImagePieceRect: Rect;
 };
 const SIZE_OF_FLOAT32 = 4;
@@ -15,74 +17,15 @@ const POSITION_COMPONENTS = 3;
 const RECT_VERTICES = 4;
 const RECT_INDICES = 6; // 2 triangles
 const COLOR_COMPONENTS = 4;
-let checkErrors = true;
+let checkErrors = true; // TODO: turn this off in release builds
 
-const vsSource = `#version 300 es
-
-in vec4 aVertexPosition;
-in vec4 aVertexColor;
-in vec2 aTextureCoord;  
-in vec4 aTexturePieceRect;
-in vec2 aTextureScaling;
-
-uniform mat4 uModelViewMatrix;
-uniform mat4 uProjectionMatrix; 
-uniform sampler2D uSampler;
-
-out lowp vec4 vColor;
-out highp vec2 vTextureCoord; 
-
-void main(void) {
-    gl_Position = uProjectionMatrix * uModelViewMatrix * aVertexPosition; 
-    vColor = aVertexColor;
-    vec2 totalTextureSize = vec2(textureSize(uSampler, 0));
-    // work out the ratio of the texture piece size to the rectangle size
-    // that we need to keep the texture piece in scale with the rectangle
-
-      // ???
-    // vec2 textureScalingForViewport = vec2(1.0,1.0) / (uProjectionMatrix * uModelViewMatrix * vec4(aTextureScaling, 0, 1)).xy;
-     
-    // offset the texture coordinates to the correct position in the texture atlas
-    // scale the texture coordinates to the rectangle size
-    // undo the offset of the texture piece in the texture atlas
-    // normalize texture coordinates
-    // TODO: clamp to texture piece rect
-    vTextureCoord = (((aTextureCoord - aTexturePieceRect.xy) * aTextureScaling) + aTexturePieceRect.xy) / totalTextureSize; 
-    // vTextureCoord = aTextureCoord / totalTextureSize;
+enum BackgroundPosition {
+  TopLeft = 0,
+  TopRight = 1,
+  BottomLeft = 2,
+  BottomRight = 3,
+  StretchToFill = 4,
 }
-`;
-
-// TODO: rather than using gl_FragCoord we should be able to scale the texture coordinates
-// inversely to the view transform, so that as you zoom in, the texture scales down equally,
-// pinned to the appropriate corner of the rectangle. this would effectively keep the texture
-// scale constant in screen space, which is what we want.
-// to make sure it stays 1:1 to screen pixels, we also need to account for the ratio of the
-// texture piece (e.g. texture within atlas) to the quad, which in turn is defined relative
-// to the global coordinate system (e.g. ratio of pixels at default zoom level to vert-space units).
-
-// alternatively, we might be able to get more crisp pixels by using gl_FragCoord (pixel coordinates
-// in screen space) to sample the texture, combined with texture lookup converting to texel
-// coordinates rather (normalized coordinates scaled by the texture size).
-// - we would still need to calculate the screen space coordinates of the corner of the rectangle
-// we're pinning the texture to, so we can correctly offset the local texel coordinates to align
-// the texture with the rectangle.
-// - we would also need to know the position of the texture piece within the texture atlas,
-// - so we can correctly offset the texture coordinates to sample the correct piece of the texture.
-const fsSource = `#version 300 es
-precision mediump float;
-
-in lowp vec4 vColor;
-in highp vec2 vTextureCoord; 
-
-uniform sampler2D uSampler;
-
-out vec4 FragColor;
-
-void main(void) {  
-      // approach based on scaling texture coordinates inversely to the view transform
-      FragColor = texture(uSampler, vTextureCoord);
-}
-`;
 
 //
 // Initialize a shader program, so WebGL knows how to draw our data
@@ -119,6 +62,58 @@ function initShaderProgram(
   return shaderProgram;
 }
 
+function assertSetsMatch<T>(expected: Set<T>, actual: Set<T>, name: string) {
+  let equal = true;
+  if (expected.size !== actual.size) {
+    equal = false;
+  }
+  for (const value of expected) {
+    if (!actual.has(value)) {
+      equal = false;
+    }
+  }
+  if (!equal) {
+    const difference = new Set(
+      [...expected, ...actual].filter((x) => {
+        return !(expected.has(x) && actual.has(x));
+      })
+    );
+
+    throw new Error(
+      `${name} doesn't match expected set,\nexpected:\n  {${Array.from(
+        expected
+      ).join(", ")}}\nactual:\n  {${Array.from(actual).join(
+        ", "
+      )}}\ndifference:\n  {${Array.from(difference).join(", ")}}`
+    );
+  }
+}
+
+function extractErrorMessages(shaderError: string, source: string) {
+  // extract 5 lines around the line that caused the error
+  const lines = source.split("\n");
+
+  const regex = /ERROR: (\d+)\:(\d+)\:(.*)\n*/g;
+  const matches = shaderError.matchAll(regex);
+  for (const match of matches) {
+    let extractedSource = "";
+    if (match) {
+      const [, , lineNumber, message] = match;
+      const start = Math.max(0, parseInt(lineNumber, 10) - 5);
+      const end = Math.min(lines.length, parseInt(lineNumber, 10) + 5);
+
+      for (let i = start; i < end; i++) {
+        extractedSource +=
+          `${i + 1}: ${lines[i]}` +
+          (i === parseInt(lineNumber, 10) - 1 ? ` <<< error\n` : "\n");
+      }
+
+      console.error(
+        message + " (at line " + lineNumber + "):\n" + extractedSource
+      );
+    }
+  }
+}
 //
 // creates a shader of the given type, uploads the source and
 // compiles it.
@@ -141,71 +136,53 @@ function loadShader(gl: WebGL2RenderingContext, type: number, source: string) {
   // See if it compiled successfully
 
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
+    const errorMessage = gl.getShaderInfoLog(shader) || "";
+    console.error(
+      "Errors occurred compiling the " +
+        (type === gl.VERTEX_SHADER ? "vertex" : "fragment") +
+        " shader: "
+    );
+    extractErrorMessages(errorMessage, source);
+
     throw new Error(
-      "An error occurred compiling the shaders: " +
-        (gl.getShaderInfoLog(shader) || "")
+      "An error occurred compiling the " +
+        (type === gl.VERTEX_SHADER ? "vertex" : "fragment") +
+        " shader: " +
+        errorMessage
     );
   }
 
   return shader;
 }
 
-type ProgramInfo = {
-  program: WebGLProgram;
-  attribLocations: {
-    aVertexPosition: number;
-    aVertexColor: number;
-    aTextureCoord: number;
-    aTexturePieceRect: number;
-    aTextureScaling: number;
-  };
-  uniformLocations: {
-    projectionMatrix: WebGLUniformLocation;
-    modelViewMatrix: WebGLUniformLocation;
-    texture: WebGLUniformLocation;
-  };
-};
-
-export function rectsToBuffers(
+function getAttribLocationOrThrow(
   gl: WebGL2RenderingContext,
-  programInfo: ProgramInfo,
-  renderableRects: RenderableRect[]
-): RectsRenderBuffers {
-  const positions: number[] = [];
-  const colors: number[] = [];
-  const indices: number[] = [];
-
-  for (let i = 0; i < renderableRects.length; i++) {
-    const renderableRect = renderableRects[i];
-    const { x, y } = renderableRect.rect.position;
-    const { x: width, y: height } = renderableRect.rect.size;
-    const startIndex = i * RECT_VERTICES;
-    // 2 triangles for a rectangle
-    indices.push(startIndex, startIndex + 1, startIndex + 2);
-    indices.push(startIndex + 1, startIndex + 2, startIndex + 3);
-
-    // 4 vertices for a rectangle, each with 3 components
-    // position at z=0 (in future we can add z-index to sort rectangles in z-space)
-    positions.push(x, y, 0); // top left
-    positions.push(x + width, y, 0); // top right
-    positions.push(x, y + height, 0); // bottom left
-    positions.push(x + width, y + height, 0); // bottom right
-
-    const color = renderableRect.backgroundColor;
-    for (let i = 0; i < RECT_VERTICES; i++) {
-      colors.push(...color);
-    }
+  program: WebGLProgram,
+  name: string
+): number {
+  const location = gl.getAttribLocation(program, name);
+  if (location === -1) {
+    // throw new Error(`unable to get attribute location for ${name}`);
+    console.warn(`unable to get attribute location for ${name}`);
   }
-
-  return initBuffers(gl, {
-    programInfo,
-    positions,
-    colors,
-    indices,
-    rects: renderableRects,
-  });
+  return location;
 }
 
+function getUniformLocationOrThrow(
+  gl: WebGL2RenderingContext,
+  program: WebGLProgram,
+  name: string
+): WebGLUniformLocation {
+  const location = gl.getUniformLocation(program, name);
+  if (!location) {
+    throw new Error(`unable to get uniform location for ${name}`);
+  }
+  return location;
+}
+
+// creates a buffer of float vertex attributes and binds it to the given attribute location
+// assumes that the data for this attribute is stored linearly rather than interleaved
+// with other attributes.
 function createAndBindFloatAttribVertexArray(
   gl: WebGL2RenderingContext,
   name: string,
@@ -267,6 +244,23 @@ function createAndBindFloatAttribVertexArray(
   return buffer;
 }
 
+type ProgramInfo = {
+  program: WebGLProgram;
+  attribLocations: {
+    aVertexPosition: number;
+    aVertexColor: number;
+    aTextureCoord: number;
+    aTexturePieceRect: number;
+  };
+  uniformLocations: {
+    projectionMatrix: WebGLUniformLocation;
+    modelViewMatrix: WebGLUniformLocation;
+    texture: WebGLUniformLocation;
+    textureTransform: WebGLUniformLocation;
+    backgroundPosition: WebGLUniformLocation;
+  };
+};
+
 // whenever the geometry changes, we need to reinitialize the buffers
 // but then we'll reuse the buffers for each render call
 export function initBuffers(
@@ -295,6 +289,7 @@ export function initBuffers(
     throw new Error("unable to create vertex array object");
   }
   gl.bindVertexArray(vao);
+  const attributesDefined = new Set();
 
   const boundBuffers = [];
 
@@ -302,21 +297,24 @@ export function initBuffers(
 
   // vertices that will be reused each render
   boundBuffers.push(
-    createAndBindFloatAttribVertexArray(gl, "aPosition", {
+    createAndBindFloatAttribVertexArray(gl, "aVertexPosition", {
       attribLocation: programInfo.attribLocations.aVertexPosition,
       dataArray: positions,
       numComponents: POSITION_COMPONENTS,
       numVertices,
     })
   );
+  attributesDefined.add("aVertexPosition");
+
   boundBuffers.push(
-    createAndBindFloatAttribVertexArray(gl, "aColor", {
+    createAndBindFloatAttribVertexArray(gl, "aVertexColor", {
       attribLocation: programInfo.attribLocations.aVertexColor,
       dataArray: colors,
       numComponents: COLOR_COMPONENTS,
       numVertices,
     })
   );
+  attributesDefined.add("aVertexColor");
 
   const texturePieceRects: number[] = [];
   rects.forEach((rect: RenderableRect) => {
@@ -340,56 +338,63 @@ export function initBuffers(
       numVertices,
     })
   );
-
-  // TODO: figure out whats wrong with this causing it to give errors
-  // about the buffer being too small
-  const textureScaling: number[] = [];
-  rects.forEach((rect: RenderableRect) => {
-    // for each rect vert
-    for (let i = 0; i < RECT_VERTICES; i++) {
-      textureScaling.push(
-        1 / (rect.textureImagePieceRect.size.x / rect.rect.size.x),
-        1 / (rect.textureImagePieceRect.size.y / rect.rect.size.y)
-      );
-    }
-  });
-  console.log("textureScaling", textureScaling);
-
-  boundBuffers.push(
-    createAndBindFloatAttribVertexArray(gl, "aTextureScaling", {
-      attribLocation: programInfo.attribLocations.aTextureScaling,
-      dataArray: textureScaling,
-      numComponents: 2,
-      numVertices,
-    })
-  );
+  attributesDefined.add("aTexturePieceRect");
 
   // Create a buffer for the texture coordinates
+  const textureCoordinates: number[] = [];
+  for (let i = 0; i < rects.length; i++) {
+    const textureCoordinatesForRect = getRectTextureCoordinatesInTexture(
+      rects[i].textureImagePieceRect,
+      rects[i].textureImageSize
+    );
+    // for each rect vert
+    for (
+      let j = 0;
+      j < RECT_VERTICES;
+      j++ // 4 vertices per rect
+    ) {
+      textureCoordinates.push(
+        textureCoordinatesForRect[j][0],
+        textureCoordinatesForRect[j][1]
+      );
+    }
 
-  const textureCoordinates = rects.flatMap((rect: RenderableRect) =>
-    rect.textureCoordinates.flatMap((coord: vec2) => [coord[0], coord[1]])
-  );
+    // // just use full texture (for debuggging)
+    // textureCoordinates.push(
+    //   ...[0, 0], // top left
+    //   ...[1, 0], // top right
+    //   ...[0, 1], // bottom left
+    //   ...[1, 1] // bottom right
+    // );
+  }
   console.log({ textureCoordinates });
   boundBuffers.push(
-    createAndBindFloatAttribVertexArray(gl, "textureCoord", {
+    createAndBindFloatAttribVertexArray(gl, "aTextureCoord", {
       attribLocation: programInfo.attribLocations.aTextureCoord,
       dataArray: textureCoordinates,
       numComponents: 2,
       numVertices,
     })
   );
+  attributesDefined.add("aTextureCoord");
 
-  const indexBuffer = gl.createBuffer();
-  if (!indexBuffer) {
-    throw new Error("unable to create index buffer");
+  {
+    const indexBuffer = gl.createBuffer();
+    if (!indexBuffer) {
+      throw new Error("unable to create index buffer");
+    }
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
+    gl.bufferData(
+      gl.ELEMENT_ARRAY_BUFFER,
+      new Uint16Array(indices),
+      gl.STATIC_DRAW
+    );
+    boundBuffers.push(indexBuffer);
   }
-  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
-  gl.bufferData(
-    gl.ELEMENT_ARRAY_BUFFER,
-    new Uint16Array(indices),
-    gl.STATIC_DRAW
-  );
-  boundBuffers.push(indexBuffer);
+
+  const expectedAttributes = new Set(Object.keys(programInfo.attribLocations));
+  // check that all attributes were set
+  assertSetsMatch(expectedAttributes, attributesDefined, "attributes set");
 
   gl.bindVertexArray(null); // unbind the vao
 
@@ -418,17 +423,57 @@ export type RectsRenderBuffers = {
   vao: WebGLVertexArrayObject;
 };
 
-const defaultTransformationMatrix = mat4.create();
+export function rectsToBuffers(
+  gl: WebGL2RenderingContext,
+  programInfo: ProgramInfo,
+  renderableRects: RenderableRect[]
+): RectsRenderBuffers {
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+
+  for (let i = 0; i < renderableRects.length; i++) {
+    const renderableRect = renderableRects[i];
+    const { x, y } = renderableRect.rect.position;
+    const { x: width, y: height } = renderableRect.rect.size;
+    const startIndex = i * RECT_VERTICES;
+    // 2 triangles for a rectangle
+    indices.push(startIndex, startIndex + 1, startIndex + 2);
+    indices.push(startIndex + 1, startIndex + 2, startIndex + 3);
+
+    // 4 vertices for a rectangle, each with 3 components
+    // position at z=0 (in future we can add z-index to sort rectangles in z-space)
+    positions.push(x, y, 0); // top left
+    positions.push(x + width, y, 0); // top right
+    positions.push(x, y + height, 0); // bottom left
+    positions.push(x + width, y + height, 0); // bottom right
+
+    const color = renderableRect.backgroundColor;
+    for (let i = 0; i < RECT_VERTICES; i++) {
+      colors.push(...color);
+    }
+  }
+
+  return initBuffers(gl, {
+    programInfo,
+    positions,
+    colors,
+    indices,
+    rects: renderableRects,
+  });
+}
+
+const defaultTransform = mat4.create();
 
 mat4.translate(
-  defaultTransformationMatrix, // destination matrix
-  defaultTransformationMatrix, // matrix to translate
+  defaultTransform, // destination matrix
+  defaultTransform, // matrix to translate
   [-1, -1, 0] // translation vector. shift to the top left of the viewport
 );
 
 mat4.scale(
-  defaultTransformationMatrix, // destination matrix
-  defaultTransformationMatrix, // matrix to scale
+  defaultTransform, // destination matrix
+  defaultTransform, // matrix to scale
   [2, 2, 1] // scaling vector. scale to the full viewport (-1 to 1)
 );
 
@@ -436,7 +481,8 @@ function drawScene(
   gl: WebGL2RenderingContext,
   programInfo: ProgramInfo,
   buffers: RectsRenderBuffers,
-  userTransformationMatrix: mat4
+  viewTransform: mat4,
+  textureTransform: mat4
 ) {
   let drawCalls = 0;
   gl.clearColor(0, 0, 0, 1.0); // black, fully opaque
@@ -461,9 +507,9 @@ function drawScene(
   const modelViewMatrix = mat4.create();
 
   // matrix multiplication is right to left, so this effectively applies the
-  // default transformation matrix first, then the user transformation matrix
-  mat4.multiply(modelViewMatrix, modelViewMatrix, userTransformationMatrix);
-  mat4.multiply(modelViewMatrix, modelViewMatrix, defaultTransformationMatrix);
+  // default transformation matrix first, then the view transformation matrix
+  mat4.multiply(modelViewMatrix, modelViewMatrix, viewTransform);
+  mat4.multiply(modelViewMatrix, modelViewMatrix, defaultTransform);
 
   // enable the vao
   gl.bindVertexArray(buffers.vao);
@@ -474,6 +520,8 @@ function drawScene(
   gl.useProgram(programInfo.program);
   checkErrors && checkGLError(gl, "using program");
 
+  const uniformsSet = new Set();
+
   // Set the shader uniforms
 
   gl.uniformMatrix4fv(
@@ -482,12 +530,15 @@ function drawScene(
     projectionMatrix
   );
   checkErrors && checkGLError(gl, "setting projection matrix uniform");
+  uniformsSet.add("projectionMatrix");
+
   gl.uniformMatrix4fv(
     programInfo.uniformLocations.modelViewMatrix,
     false,
     modelViewMatrix
   );
   checkErrors && checkGLError(gl, "setting model view matrix uniform");
+  uniformsSet.add("modelViewMatrix");
 
   // enable the texture
   gl.activeTexture(gl.TEXTURE0);
@@ -499,8 +550,25 @@ function drawScene(
     programInfo.uniformLocations.texture,
     0 /* index of texture unit */
   );
+  uniformsSet.add("texture");
 
-  // draw the rectangles
+  gl.uniform1ui(
+    programInfo.uniformLocations.backgroundPosition,
+    BackgroundPosition.TopLeft
+  );
+  uniformsSet.add("backgroundPosition");
+
+  gl.uniformMatrix4fv(
+    programInfo.uniformLocations.textureTransform,
+    false,
+    textureTransform
+    // mat4.invert(mat4.create(), viewTransform)
+    // mat4.clone(viewTransform)
+  );
+  checkErrors && checkGLError(gl, "setting texture transform uniform");
+  uniformsSet.add("textureTransform");
+
+  // define array to draw the rectangles
   {
     const offset = 0;
     const count = buffers.rects.length * RECT_INDICES; // each rectangle has 6 indices: 2 triangles * 3 vertices
@@ -511,21 +579,12 @@ function drawScene(
     drawCalls++;
   }
 
+  const expectedUniforms = new Set(Object.keys(programInfo.uniformLocations));
+  // check that all uniforms were set
+  assertSetsMatch(expectedUniforms, uniformsSet, "uniforms set");
+
   gl.bindVertexArray(null); // unbind the vao
   return drawCalls;
-}
-
-function getAttribLocationOrThrow(
-  gl: WebGL2RenderingContext,
-  program: WebGLProgram,
-  name: string
-): number {
-  const location = gl.getAttribLocation(program, name);
-  if (location === -1) {
-    // throw new Error(`unable to get attribute location for ${name}`);
-    console.warn(`unable to get attribute location for ${name}`);
-  }
-  return location;
 }
 
 export function initWebGLRenderer(
@@ -537,7 +596,11 @@ export function initWebGLRenderer(
 
   // Initialize a shader program; this is where all the lighting
   // for the vertices and so forth is established.
-  const shaderProgram = initShaderProgram(gl, vsSource, fsSource);
+  const shaderProgram = initShaderProgram(
+    gl,
+    vertexShaderSource,
+    fragmentShaderSource
+  );
 
   // Collect all the info needed to use the shader program.
   // Look up which attribute our shader program is using
@@ -561,20 +624,29 @@ export function initWebGLRenderer(
         shaderProgram,
         "aTexturePieceRect"
       ),
-      aTextureScaling: getAttribLocationOrThrow(
-        gl,
-        shaderProgram,
-        "aTextureScaling"
-      ),
     },
     uniformLocations: {
-      projectionMatrix: nullthrows(
-        gl.getUniformLocation(shaderProgram, "uProjectionMatrix")
+      projectionMatrix: getUniformLocationOrThrow(
+        gl,
+        shaderProgram,
+        "uProjectionMatrix"
       ),
-      modelViewMatrix: nullthrows(
-        gl.getUniformLocation(shaderProgram, "uModelViewMatrix")
+      modelViewMatrix: getUniformLocationOrThrow(
+        gl,
+        shaderProgram,
+        "uModelViewMatrix"
       ),
-      texture: nullthrows(gl.getUniformLocation(shaderProgram, "uSampler")),
+      texture: getUniformLocationOrThrow(gl, shaderProgram, "uSampler"),
+      textureTransform: getUniformLocationOrThrow(
+        gl,
+        shaderProgram,
+        "uTextureTransform"
+      ),
+      backgroundPosition: getUniformLocationOrThrow(
+        gl,
+        shaderProgram,
+        "uBackgroundPosition"
+      ),
     },
   };
 
@@ -582,14 +654,23 @@ export function initWebGLRenderer(
 
   let buffers: RectsRenderBuffers | null = null;
   return {
-    render(transformationMatrix: mat4 = mat4.create()) {
+    render(
+      viewTransform: mat4 = mat4.create(),
+      textureTransform: mat4 = mat4.create()
+    ) {
       if (!buffers) {
         throw new Error(
           "render() called but setRenderableRects() was not called first to initialize scenegraph"
         );
       }
       // Draw the scene
-      return drawScene(gl, programInfo, buffers, transformationMatrix);
+      return drawScene(
+        gl,
+        programInfo,
+        buffers,
+        viewTransform,
+        textureTransform
+      );
     },
     setRenderableRects: (renderableRects: RenderableRect[]) => {
       if (buffers) {
@@ -636,35 +717,27 @@ function checkGLError(gl: WebGL2RenderingContext, situation: string) {
 }
 
 export function getRectTextureCoordinatesInTexture(
-  rect: Rect,
-  textureDimensions: { width: number; height: number }
+  texturePieceRect: Rect,
+  textureDimensions: Vec2d
 ): vec2[] {
-  const { x, y } = rect.position;
-  const { x: width, y: height } = rect.size;
+  const { x, y } = texturePieceRect.position;
+  const { x: width, y: height } = texturePieceRect.size;
+  const { x: textureWidth, y: textureHeight } = textureDimensions;
 
   // normalized texture coordinates
-  // const textureCoordinates = [
-  //   vec2.fromValues(x / textureDimensions.width, y / textureDimensions.height), // top left
-  //   vec2.fromValues(
-  //     (x + width) / textureDimensions.width,
-  //     y / textureDimensions.height
-  //   ), // top right
-  //   vec2.fromValues(
-  //     x / textureDimensions.width,
-  //     (y + height) / textureDimensions.height
-  //   ), // bottom left
-  //   vec2.fromValues(
-  //     (x + width) / textureDimensions.width,
-  //     (y + height) / textureDimensions.height
-  //   ), // bottom right
-  // ];
+  const textureCoordinates = [
+    vec2.fromValues(x / textureWidth, y / textureHeight), // top left
+    vec2.fromValues((x + width) / textureWidth, y / textureHeight), // top right
+    vec2.fromValues(x / textureWidth, (y + height) / textureHeight), // bottom left
+    vec2.fromValues((x + width) / textureWidth, (y + height) / textureHeight), // bottom right
+  ];
 
   // texel space texture coordinates
-  const textureCoordinates = [
-    vec2.fromValues(x, y), // top left
-    vec2.fromValues(x + width, y), // top right
-    vec2.fromValues(x, y + height), // bottom left
-    vec2.fromValues(x + width, y + height), // bottom right
-  ];
+  // const textureCoordinates = [
+  //   vec2.fromValues(x, y), // top left
+  //   vec2.fromValues(x + width, y), // top right
+  //   vec2.fromValues(x, y + height), // bottom left
+  //   vec2.fromValues(x + width, y + height), // bottom right
+  // ];
   return textureCoordinates;
 }
