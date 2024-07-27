@@ -2,38 +2,45 @@ import Rect from "./Rect";
 const DEBUG_USE_SMALL_TEXTURES = true; // to make it easier to test the behavior of exceeding the texture size
 const TEXTURE_SIZE_X = DEBUG_USE_SMALL_TEXTURES ? 1024 : 4096;
 const TEXTURE_SIZE_Y = DEBUG_USE_SMALL_TEXTURES ? 256 : 4096;
-
+const font = "12px sans-serif";
 export function generateImageBitmapsForText(
   strings: string[],
-  textCanvasHeight?: number | null
+  textCanvasHeight?: number | null,
+  pixelRatio: number = 1
 ): Map<string, ImageBitmap> {
   const canvas = new OffscreenCanvas(128, 128);
   const context = canvas.getContext("2d");
   if (!context) {
     throw new Error("couldnt use 2d context");
   }
+
+  // Set actual size in memory (scaled to account for extra pixel density).
+  const scale = pixelRatio; // Change to 1 on retina screens to see blurry canvas.
+
   return new Map(
     strings.map((text) => {
-      context.font = "16px sans-serif"; // set the font+size before measuring
+      // Normalize coordinate system to use logical pixels.
+      context.scale(scale, scale);
+
+      context.font = font; // set the font+size before measuring
       const metrics = context.measureText(text);
-      canvas.width = metrics.width;
+      canvas.width = Math.floor(metrics.width * scale);
+
       // calculate the height of the text using advanced text metrics
       let actualHeight =
         metrics.actualBoundingBoxAscent + metrics.actualBoundingBoxDescent;
-      if (textCanvasHeight == null) {
-        canvas.height = actualHeight;
-      } else {
-        canvas.height = textCanvasHeight;
-      }
-      console.log("text", text);
-      console.log("metrics", metrics);
-      console.log("canvas.width", canvas.width, "canvas.height", canvas.height);
+      let heightToUse =
+        textCanvasHeight == null ? actualHeight : textCanvasHeight;
+      canvas.height = Math.floor(heightToUse * scale);
 
       context.clearRect(0, 0, canvas.width, canvas.height);
+      // Normalize coordinate system to use logical pixels.
+      context.scale(scale, scale);
+
       context.fillStyle = "transparent";
       context.fillRect(0, 0, canvas.width, canvas.height);
       context.fillStyle = "black";
-      context.font = "11px sans-serif"; // this was reset by the clearRect
+      context.font = font; // this was reset by the clearRect
       context.fillText(text, 0, metrics.actualBoundingBoxAscent);
 
       const imageBitmap = canvas.transferToImageBitmap();
@@ -118,11 +125,13 @@ export function createTextureAtlases(
 
 export function createTextTextureAtlases(
   strings: string[],
-  textCanvasHeight?: number | null
+  textCanvasHeight?: number | null,
+  pixelRatio: number = 1
 ) {
   const singleTextImages = generateImageBitmapsForText(
     strings,
-    textCanvasHeight
+    textCanvasHeight,
+    pixelRatio
   );
   // pack the image bitmaps into one or more texture atlases, and return them
   // along with the mapping from text labels to texture coordinates

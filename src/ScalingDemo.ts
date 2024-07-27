@@ -11,13 +11,15 @@ import Vec2d from "./Vec2d";
 
 const canvas = document.createElement("canvas");
 document.querySelector<HTMLDivElement>("#app")!.appendChild(canvas);
-canvas.width = window.innerWidth * 0.95;
-canvas.height = window.innerHeight * 0.8;
+canvas.width = window.innerWidth * 0.95 * devicePixelRatio;
+canvas.height = window.innerHeight * 0.8 * devicePixelRatio;
+canvas.style.width = `${canvas.width / devicePixelRatio}px`;
+canvas.style.height = `${canvas.height / devicePixelRatio}px`;
 const gl = canvas.getContext("webgl2");
 if (!gl) {
   throw new Error("couldnt use webgl2");
 }
-const SPAN_HEIGHT = 20; //px
+const SPAN_HEIGHT = 20 * devicePixelRatio; //px
 
 const generateRandomLabel = (() => {
   const words = [
@@ -89,14 +91,14 @@ function range(start: number, end: number) {
 
 const renderer = initWebGLRenderer(gl);
 
-const rectInputs = range(0, 20).map(() => {
+const rectInputs = range(0, 1000).map(() => {
   return {
     rect: new Rect({
       position: {
         x: (Math.random() - 0.5) * 10 * SPAN_HEIGHT * 5,
         y: (Math.random() - 0.5) * SPAN_HEIGHT * 10,
       },
-      size: { x: SPAN_HEIGHT * 10, y: SPAN_HEIGHT },
+      size: { x: SPAN_HEIGHT * 3, y: SPAN_HEIGHT },
     }),
     label: generateRandomLabel(),
   };
@@ -106,11 +108,13 @@ console.log(rectInputs);
 
 const textureAtlases = createTextTextureAtlases(
   rectInputs.map((input) => input.label),
-  SPAN_HEIGHT
+  null,
+  devicePixelRatio
 );
 
 // display each texture atlas in a separate canvas for debugging
 textureAtlases.forEach((textureAtlas, i) => {
+  return;
   const h1 = document.createElement("h2");
   h1.textContent = "Texture Atlas " + i;
   const div = document.createElement("div");
@@ -177,7 +181,7 @@ textureAtlases.forEach((textureAtlas) => {
 
 renderer.setRenderableRects(
   rectInputs
-    .filter((rectInput) => textureAtlases[0].mapping.has(rectInput.label))
+    // .filter((rectInput) => textureAtlases[0].mapping.has(rectInput.label))
     .map((rectInput) => {
       const labelInAtlas = labelsInTextureAtlases.get(rectInput.label);
       if (!labelInAtlas) {

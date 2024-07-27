@@ -5,6 +5,7 @@ in vec4 aVertexPosition;
 in vec4 aVertexColor;
 in vec2 aTextureCoord;
 in vec4 aTexturePieceRect; // x, y, z:width, w:height
+in vec2 aRectTextureRatio;
 
 uniform mat4 uModelViewMatrix;
 uniform mat4 uProjectionMatrix;
@@ -34,10 +35,11 @@ const uint BackgroundPositionStretchToFill = 4u;
 void main(void) {
     gl_Position = uProjectionMatrix * uModelViewMatrix * aVertexPosition;
     vColor = aVertexColor;
+
     vec2 totalTextureSize = vec2(textureSize(uSampler, 0));
     textureClippingCoords = vec4(aTexturePieceRect.xy / totalTextureSize, (aTexturePieceRect.xy + aTexturePieceRect.zw) / totalTextureSize);
+
     if(uBackgroundPosition == BackgroundPositionStretchToFill) {
-        vTextureCoord = aTextureCoord;
         vTextureCoord = (uTextureTransform * vec4(aTextureCoord, 0.0f, 1.0f)).xy;
     } else if(uBackgroundPosition == BackgroundPositionTopLeft) {
         // scale the texture coordinates inversely:
@@ -57,7 +59,7 @@ void main(void) {
         //  relative to the rect, in other words scaling the texture coordinates
         //  down
 
-        texturePieceCoord = (uTextureTransform * vec4(texturePieceCoord, 0.0f, 1.0f)).xy; 
+        texturePieceCoord = (uTextureTransform * vec4(texturePieceCoord, 0.0f, 1.0f)).xy / aRectTextureRatio; 
 
         // 4. undo offset
         texturePieceCoord += texturePieceTopLeft;

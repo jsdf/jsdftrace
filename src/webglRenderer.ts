@@ -1,5 +1,4 @@
 import { mat4, vec2 } from "gl-matrix";
-import { nullthrows } from "./nullthrows";
 import Rect from "./Rect";
 import vertexShaderSource from "./vertexShader.glsl";
 import fragmentShaderSource from "./fragmentShader.glsl";
@@ -251,6 +250,7 @@ type ProgramInfo = {
     aVertexColor: number;
     aTextureCoord: number;
     aTexturePieceRect: number;
+    aRectTextureRatio: number;
   };
   uniformLocations: {
     projectionMatrix: WebGLUniformLocation;
@@ -261,9 +261,59 @@ type ProgramInfo = {
   };
 };
 
+export type RectsRenderBuffers = {
+  rects: RenderableRect[];
+  boundBuffers: WebGLBuffer[];
+  vao: WebGLVertexArrayObject;
+};
+
 // whenever the geometry changes, we need to reinitialize the buffers
 // but then we'll reuse the buffers for each render call
-export function initBuffers(
+function rectsToBuffers(
+  gl: WebGL2RenderingContext,
+  programInfo: ProgramInfo,
+  renderableRects: RenderableRect[]
+): RectsRenderBuffers {
+  const positions: number[] = [];
+  const colors: number[] = [];
+  const indices: number[] = [];
+
+  // TODO: merge this with initBuffers
+  // TODO: sort rects by texture atlas
+  for (let i = 0; i < renderableRects.length; i++) {
+    const renderableRect = renderableRects[i];
+    const { x, y } = renderableRect.rect.position;
+    const { x: width, y: height } = renderableRect.rect.size;
+    const startIndex = i * RECT_VERTICES;
+    // 2 triangles for a rectangle
+    indices.push(startIndex, startIndex + 1, startIndex + 2);
+    indices.push(startIndex + 1, startIndex + 2, startIndex + 3);
+
+    const z = 1 - i / renderableRects.length;
+
+    // 4 vertices for a rectangle, each with 3 components
+    // position at z=0 (in future we can add z-index to sort rectangles in z-space)
+    positions.push(x, y, z); // top left
+    positions.push(x + width, y, z); // top right
+    positions.push(x, y + height, z); // bottom left
+    positions.push(x + width, y + height, z); // bottom right
+
+    const color = renderableRect.backgroundColor;
+    for (let i = 0; i < RECT_VERTICES; i++) {
+      colors.push(...color);
+    }
+  }
+
+  return initBuffers(gl, {
+    programInfo,
+    positions,
+    colors,
+    indices,
+    rects: renderableRects,
+  });
+}
+
+function initBuffers(
   gl: WebGL2RenderingContext,
   {
     programInfo,
@@ -378,6 +428,28 @@ export function initBuffers(
   );
   attributesDefined.add("aTextureCoord");
 
+  // Create a buffer for the texture ratio
+  const textureRatios: number[] = [];
+  rects.forEach((rect: RenderableRect) => {
+    // for each rect vert
+    for (let i = 0; i < RECT_VERTICES; i++) {
+      textureRatios.push(
+        rect.textureImagePieceRect.size.x / rect.rect.size.x,
+        rect.textureImagePieceRect.size.y / rect.rect.size.y
+      );
+    }
+  });
+  console.log({ textureRatios });
+  boundBuffers.push(
+    createAndBindFloatAttribVertexArray(gl, "aRectTextureRatio", {
+      attribLocation: programInfo.attribLocations.aRectTextureRatio,
+      dataArray: textureRatios,
+      numComponents: 2,
+      numVertices,
+    })
+  );
+  attributesDefined.add("aRectTextureRatio");
+
   {
     const indexBuffer = gl.createBuffer();
     if (!indexBuffer) {
@@ -415,52 +487,6 @@ export function releaseBuffers(
     gl.deleteBuffer(buffer);
   });
   gl.deleteVertexArray(buffers.vao);
-}
-
-export type RectsRenderBuffers = {
-  rects: RenderableRect[];
-  boundBuffers: WebGLBuffer[];
-  vao: WebGLVertexArrayObject;
-};
-
-export function rectsToBuffers(
-  gl: WebGL2RenderingContext,
-  programInfo: ProgramInfo,
-  renderableRects: RenderableRect[]
-): RectsRenderBuffers {
-  const positions: number[] = [];
-  const colors: number[] = [];
-  const indices: number[] = [];
-
-  for (let i = 0; i < renderableRects.length; i++) {
-    const renderableRect = renderableRects[i];
-    const { x, y } = renderableRect.rect.position;
-    const { x: width, y: height } = renderableRect.rect.size;
-    const startIndex = i * RECT_VERTICES;
-    // 2 triangles for a rectangle
-    indices.push(startIndex, startIndex + 1, startIndex + 2);
-    indices.push(startIndex + 1, startIndex + 2, startIndex + 3);
-
-    // 4 vertices for a rectangle, each with 3 components
-    // position at z=0 (in future we can add z-index to sort rectangles in z-space)
-    positions.push(x, y, 0); // top left
-    positions.push(x + width, y, 0); // top right
-    positions.push(x, y + height, 0); // bottom left
-    positions.push(x + width, y + height, 0); // bottom right
-
-    const color = renderableRect.backgroundColor;
-    for (let i = 0; i < RECT_VERTICES; i++) {
-      colors.push(...color);
-    }
-  }
-
-  return initBuffers(gl, {
-    programInfo,
-    positions,
-    colors,
-    indices,
-    rects: renderableRects,
-  });
 }
 
 const defaultTransform = mat4.create();
@@ -562,16 +588,21 @@ function drawScene(
     programInfo.uniformLocations.textureTransform,
     false,
     textureTransform
-    // mat4.invert(mat4.create(), viewTransform)
-    // mat4.clone(viewTransform)
   );
   checkErrors && checkGLError(gl, "setting texture transform uniform");
   uniformsSet.add("textureTransform");
 
-  // define array to draw the rectangles
-  {
-    const offset = 0;
-    const count = buffers.rects.length * RECT_INDICES; // each rectangle has 6 indices: 2 triangles * 3 vertices
+  // draw in batches
+  const batchSize = 1000;
+  const batches = Math.ceil(buffers.rects.length / batchSize);
+  for (let i = 0; i < batches; i++) {
+    // offset in indices
+    const offset = i * batchSize * RECT_INDICES;
+    // each rectangle has 6 indices: 2 triangles * 3 vertices
+    const count = Math.min(
+      batchSize * RECT_INDICES,
+      buffers.rects.length * RECT_INDICES - offset
+    );
     const type = gl.UNSIGNED_SHORT;
     // TODO: draw in batches grouped by texture atlas
     gl.drawElements(gl.TRIANGLES, count, type, offset);
@@ -623,6 +654,11 @@ export function initWebGLRenderer(
         gl,
         shaderProgram,
         "aTexturePieceRect"
+      ),
+      aRectTextureRatio: getAttribLocationOrThrow(
+        gl,
+        shaderProgram,
+        "aRectTextureRatio"
       ),
     },
     uniformLocations: {
