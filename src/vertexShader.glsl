@@ -40,7 +40,8 @@ void main(void) {
     textureClippingCoords = vec4(aTexturePieceRect.xy / totalTextureSize, (aTexturePieceRect.xy + aTexturePieceRect.zw) / totalTextureSize);
 
     if(uBackgroundPosition == BackgroundPositionStretchToFill) {
-        vTextureCoord = (uTextureTransform * vec4(aTextureCoord, 0.0f, 1.0f)).xy;
+        vTextureCoord = aTextureCoord;
+        textureClippingCoords = vec4(0.0,0.0,1.0,1.0);
     } else if(uBackgroundPosition == BackgroundPositionTopLeft) {
         // scale the texture coordinates inversely:
 

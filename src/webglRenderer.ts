@@ -1,8 +1,8 @@
-import { mat4, vec2 } from "gl-matrix";
-import Rect from "./Rect";
-import vertexShaderSource from "./vertexShader.glsl";
-import fragmentShaderSource from "./fragmentShader.glsl";
-import Vec2d from "./Vec2d";
+import { mat4, vec2 } from 'gl-matrix';
+import Rect from './Rect';
+import vertexShaderSource from './vertexShader.glsl';
+import fragmentShaderSource from './fragmentShader.glsl';
+import Vec2d from './Vec2d';
 
 export type RenderableRect = {
   rect: Rect;
@@ -42,7 +42,7 @@ function initShaderProgram(
   const shaderProgram = gl.createProgram();
 
   if (!shaderProgram) {
-    throw new Error("unable to create shader program");
+    throw new Error('unable to create shader program');
   }
 
   gl.attachShader(shaderProgram, vertexShader);
@@ -53,8 +53,8 @@ function initShaderProgram(
 
   if (!gl.getProgramParameter(shaderProgram, gl.LINK_STATUS)) {
     throw new Error(
-      "Unable to initialize the shader program: " +
-        (gl.getProgramInfoLog(shaderProgram) || "")
+      'Unable to initialize the shader program: ' +
+        (gl.getProgramInfoLog(shaderProgram) || '')
     );
   }
 
@@ -81,21 +81,21 @@ function assertSetsMatch<T>(expected: Set<T>, actual: Set<T>, name: string) {
     throw new Error(
       `${name} doesn't match expected set,\nexpected:\n  {${Array.from(
         expected
-      ).join(", ")}}\nactual:\n  {${Array.from(actual).join(
-        ", "
-      )}}\ndifference:\n  {${Array.from(difference).join(", ")}}`
+      ).join(', ')}}\nactual:\n  {${Array.from(actual).join(
+        ', '
+      )}}\ndifference:\n  {${Array.from(difference).join(', ')}}`
     );
   }
 }
 
 function extractErrorMessages(shaderError: string, source: string) {
   // extract 5 lines around the line that caused the error
-  const lines = source.split("\n");
+  const lines = source.split('\n');
 
   const regex = /ERROR: (\d+)\:(\d+)\:(.*)\n*/g;
   const matches = shaderError.matchAll(regex);
   for (const match of matches) {
-    let extractedSource = "";
+    let extractedSource = '';
     if (match) {
       const [, , lineNumber, message] = match;
       const start = Math.max(0, parseInt(lineNumber, 10) - 5);
@@ -104,11 +104,11 @@ function extractErrorMessages(shaderError: string, source: string) {
       for (let i = start; i < end; i++) {
         extractedSource +=
           `${i + 1}: ${lines[i]}` +
-          (i === parseInt(lineNumber, 10) - 1 ? ` <<< error\n` : "\n");
+          (i === parseInt(lineNumber, 10) - 1 ? ` <<< error\n` : '\n');
       }
 
       console.error(
-        message + " (at line " + lineNumber + "):\n" + extractedSource
+        message + ' (at line ' + lineNumber + '):\n' + extractedSource
       );
     }
   }
@@ -121,7 +121,7 @@ function loadShader(gl: WebGL2RenderingContext, type: number, source: string) {
   const shader = gl.createShader(type);
 
   if (!shader) {
-    throw new Error("unable to create shader");
+    throw new Error('unable to create shader');
   }
 
   // Send the source to the shader object
@@ -135,18 +135,18 @@ function loadShader(gl: WebGL2RenderingContext, type: number, source: string) {
   // See if it compiled successfully
 
   if (!gl.getShaderParameter(shader, gl.COMPILE_STATUS)) {
-    const errorMessage = gl.getShaderInfoLog(shader) || "";
+    const errorMessage = gl.getShaderInfoLog(shader) || '';
     console.error(
-      "Errors occurred compiling the " +
-        (type === gl.VERTEX_SHADER ? "vertex" : "fragment") +
-        " shader: "
+      'Errors occurred compiling the ' +
+        (type === gl.VERTEX_SHADER ? 'vertex' : 'fragment') +
+        ' shader: '
     );
     extractErrorMessages(errorMessage, source);
 
     throw new Error(
-      "An error occurred compiling the " +
-        (type === gl.VERTEX_SHADER ? "vertex" : "fragment") +
-        " shader: " +
+      'An error occurred compiling the ' +
+        (type === gl.VERTEX_SHADER ? 'vertex' : 'fragment') +
+        ' shader: ' +
         errorMessage
     );
   }
@@ -329,14 +329,14 @@ function initBuffers(
     rects: RenderableRect[];
   }
 ): RectsRenderBuffers {
-  console.log("positions", positions);
-  console.log("colors", colors);
-  console.log("indices", indices);
-  console.log("rects", rects);
+  console.log('positions', positions);
+  console.log('colors', colors);
+  console.log('indices', indices);
+  console.log('rects', rects);
 
   const vao = gl.createVertexArray();
   if (!vao) {
-    throw new Error("unable to create vertex array object");
+    throw new Error('unable to create vertex array object');
   }
   gl.bindVertexArray(vao);
   const attributesDefined = new Set();
@@ -347,24 +347,24 @@ function initBuffers(
 
   // vertices that will be reused each render
   boundBuffers.push(
-    createAndBindFloatAttribVertexArray(gl, "aVertexPosition", {
+    createAndBindFloatAttribVertexArray(gl, 'aVertexPosition', {
       attribLocation: programInfo.attribLocations.aVertexPosition,
       dataArray: positions,
       numComponents: POSITION_COMPONENTS,
       numVertices,
     })
   );
-  attributesDefined.add("aVertexPosition");
+  attributesDefined.add('aVertexPosition');
 
   boundBuffers.push(
-    createAndBindFloatAttribVertexArray(gl, "aVertexColor", {
+    createAndBindFloatAttribVertexArray(gl, 'aVertexColor', {
       attribLocation: programInfo.attribLocations.aVertexColor,
       dataArray: colors,
       numComponents: COLOR_COMPONENTS,
       numVertices,
     })
   );
-  attributesDefined.add("aVertexColor");
+  attributesDefined.add('aVertexColor');
 
   const texturePieceRects: number[] = [];
   rects.forEach((rect: RenderableRect) => {
@@ -381,14 +381,14 @@ function initBuffers(
     }
   });
   boundBuffers.push(
-    createAndBindFloatAttribVertexArray(gl, "aTexturePieceRect", {
+    createAndBindFloatAttribVertexArray(gl, 'aTexturePieceRect', {
       attribLocation: programInfo.attribLocations.aTexturePieceRect,
       dataArray: texturePieceRects,
       numComponents: 4,
       numVertices,
     })
   );
-  attributesDefined.add("aTexturePieceRect");
+  attributesDefined.add('aTexturePieceRect');
 
   // Create a buffer for the texture coordinates
   const textureCoordinates: number[] = [];
@@ -419,14 +419,14 @@ function initBuffers(
   }
   console.log({ textureCoordinates });
   boundBuffers.push(
-    createAndBindFloatAttribVertexArray(gl, "aTextureCoord", {
+    createAndBindFloatAttribVertexArray(gl, 'aTextureCoord', {
       attribLocation: programInfo.attribLocations.aTextureCoord,
       dataArray: textureCoordinates,
       numComponents: 2,
       numVertices,
     })
   );
-  attributesDefined.add("aTextureCoord");
+  attributesDefined.add('aTextureCoord');
 
   // Create a buffer for the texture ratio
   const textureRatios: number[] = [];
@@ -441,19 +441,19 @@ function initBuffers(
   });
   console.log({ textureRatios });
   boundBuffers.push(
-    createAndBindFloatAttribVertexArray(gl, "aRectTextureRatio", {
+    createAndBindFloatAttribVertexArray(gl, 'aRectTextureRatio', {
       attribLocation: programInfo.attribLocations.aRectTextureRatio,
       dataArray: textureRatios,
       numComponents: 2,
       numVertices,
     })
   );
-  attributesDefined.add("aRectTextureRatio");
+  attributesDefined.add('aRectTextureRatio');
 
   {
     const indexBuffer = gl.createBuffer();
     if (!indexBuffer) {
-      throw new Error("unable to create index buffer");
+      throw new Error('unable to create index buffer');
     }
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indexBuffer);
     gl.bufferData(
@@ -466,7 +466,7 @@ function initBuffers(
 
   const expectedAttributes = new Set(Object.keys(programInfo.attribLocations));
   // check that all attributes were set
-  assertSetsMatch(expectedAttributes, attributesDefined, "attributes set");
+  assertSetsMatch(expectedAttributes, attributesDefined, 'attributes set');
 
   gl.bindVertexArray(null); // unbind the vao
 
@@ -539,12 +539,12 @@ function drawScene(
 
   // enable the vao
   gl.bindVertexArray(buffers.vao);
-  checkErrors && checkGLError(gl, "binding vertex array object");
+  checkErrors && checkGLError(gl, 'binding vertex array object');
 
   // Tell WebGL to use our program when drawing
 
   gl.useProgram(programInfo.program);
-  checkErrors && checkGLError(gl, "using program");
+  checkErrors && checkGLError(gl, 'using program');
 
   const uniformsSet = new Set();
 
@@ -555,16 +555,16 @@ function drawScene(
     false,
     projectionMatrix
   );
-  checkErrors && checkGLError(gl, "setting projection matrix uniform");
-  uniformsSet.add("projectionMatrix");
+  checkErrors && checkGLError(gl, 'setting projection matrix uniform');
+  uniformsSet.add('projectionMatrix');
 
   gl.uniformMatrix4fv(
     programInfo.uniformLocations.modelViewMatrix,
     false,
     modelViewMatrix
   );
-  checkErrors && checkGLError(gl, "setting model view matrix uniform");
-  uniformsSet.add("modelViewMatrix");
+  checkErrors && checkGLError(gl, 'setting model view matrix uniform');
+  uniformsSet.add('modelViewMatrix');
 
   // enable the texture
   gl.activeTexture(gl.TEXTURE0);
@@ -576,21 +576,21 @@ function drawScene(
     programInfo.uniformLocations.texture,
     0 /* index of texture unit */
   );
-  uniformsSet.add("texture");
+  uniformsSet.add('texture');
 
   gl.uniform1ui(
     programInfo.uniformLocations.backgroundPosition,
     BackgroundPosition.TopLeft
   );
-  uniformsSet.add("backgroundPosition");
+  uniformsSet.add('backgroundPosition');
 
   gl.uniformMatrix4fv(
     programInfo.uniformLocations.textureTransform,
     false,
     textureTransform
   );
-  checkErrors && checkGLError(gl, "setting texture transform uniform");
-  uniformsSet.add("textureTransform");
+  checkErrors && checkGLError(gl, 'setting texture transform uniform');
+  uniformsSet.add('textureTransform');
 
   // draw in batches
   const batchSize = 1000;
@@ -606,13 +606,13 @@ function drawScene(
     const type = gl.UNSIGNED_SHORT;
     // TODO: draw in batches grouped by texture atlas
     gl.drawElements(gl.TRIANGLES, count, type, offset);
-    checkErrors && checkGLError(gl, "drawing elements");
+    checkErrors && checkGLError(gl, 'drawing elements');
     drawCalls++;
   }
 
   const expectedUniforms = new Set(Object.keys(programInfo.uniformLocations));
   // check that all uniforms were set
-  assertSetsMatch(expectedUniforms, uniformsSet, "uniforms set");
+  assertSetsMatch(expectedUniforms, uniformsSet, 'uniforms set');
 
   gl.bindVertexArray(null); // unbind the vao
   return drawCalls;
@@ -642,51 +642,51 @@ export function initWebGLRenderer(
       aVertexPosition: getAttribLocationOrThrow(
         gl,
         shaderProgram,
-        "aVertexPosition"
+        'aVertexPosition'
       ),
-      aVertexColor: getAttribLocationOrThrow(gl, shaderProgram, "aVertexColor"),
+      aVertexColor: getAttribLocationOrThrow(gl, shaderProgram, 'aVertexColor'),
       aTextureCoord: getAttribLocationOrThrow(
         gl,
         shaderProgram,
-        "aTextureCoord"
+        'aTextureCoord'
       ),
       aTexturePieceRect: getAttribLocationOrThrow(
         gl,
         shaderProgram,
-        "aTexturePieceRect"
+        'aTexturePieceRect'
       ),
       aRectTextureRatio: getAttribLocationOrThrow(
         gl,
         shaderProgram,
-        "aRectTextureRatio"
+        'aRectTextureRatio'
       ),
     },
     uniformLocations: {
       projectionMatrix: getUniformLocationOrThrow(
         gl,
         shaderProgram,
-        "uProjectionMatrix"
+        'uProjectionMatrix'
       ),
       modelViewMatrix: getUniformLocationOrThrow(
         gl,
         shaderProgram,
-        "uModelViewMatrix"
+        'uModelViewMatrix'
       ),
-      texture: getUniformLocationOrThrow(gl, shaderProgram, "uSampler"),
+      texture: getUniformLocationOrThrow(gl, shaderProgram, 'uSampler'),
       textureTransform: getUniformLocationOrThrow(
         gl,
         shaderProgram,
-        "uTextureTransform"
+        'uTextureTransform'
       ),
       backgroundPosition: getUniformLocationOrThrow(
         gl,
         shaderProgram,
-        "uBackgroundPosition"
+        'uBackgroundPosition'
       ),
     },
   };
 
-  checkErrors && checkGLError(gl, "initWebGLRenderer");
+  checkErrors && checkGLError(gl, 'initWebGLRenderer');
 
   let buffers: RectsRenderBuffers | null = null;
   return {
@@ -696,7 +696,7 @@ export function initWebGLRenderer(
     ) {
       if (!buffers) {
         throw new Error(
-          "render() called but setRenderableRects() was not called first to initialize scenegraph"
+          'render() called but setRenderableRects() was not called first to initialize scenegraph'
         );
       }
       // Draw the scene
@@ -727,28 +727,28 @@ export function initWebGLRenderer(
 function checkGLError(gl: WebGL2RenderingContext, situation: string) {
   const error = gl.getError();
   if (error !== gl.NO_ERROR) {
-    let errorMessage = "";
+    let errorMessage = '';
     switch (error) {
       case gl.INVALID_ENUM:
-        errorMessage = "gl.INVALID_ENUM";
+        errorMessage = 'gl.INVALID_ENUM';
         break;
       case gl.INVALID_VALUE:
-        errorMessage = "gl.INVALID_VALUE";
+        errorMessage = 'gl.INVALID_VALUE';
         break;
       case gl.INVALID_OPERATION:
-        errorMessage = "gl.INVALID_OPERATION";
+        errorMessage = 'gl.INVALID_OPERATION';
         break;
       case gl.OUT_OF_MEMORY:
-        errorMessage = "gl.OUT_OF_MEMORY";
+        errorMessage = 'gl.OUT_OF_MEMORY';
         break;
       case gl.INVALID_FRAMEBUFFER_OPERATION:
-        errorMessage = "gl.INVALID_FRAMEBUFFER_OPERATION";
+        errorMessage = 'gl.INVALID_FRAMEBUFFER_OPERATION';
         break;
       default:
-        errorMessage = "Unknown WebGL error";
+        errorMessage = 'Unknown WebGL error';
     }
 
-    throw new Error(situation + ": " + errorMessage);
+    throw new Error(situation + ': ' + errorMessage);
   }
 }
 
