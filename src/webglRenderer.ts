@@ -18,7 +18,7 @@ const RECT_INDICES = 6; // 2 triangles
 const COLOR_COMPONENTS = 4;
 let checkErrors = true; // TODO: turn this off in release builds
 
-enum BackgroundPosition {
+export enum BackgroundPosition {
   TopLeft = 0,
   TopRight = 1,
   BottomLeft = 2,
@@ -507,8 +507,15 @@ function drawScene(
   gl: WebGL2RenderingContext,
   programInfo: ProgramInfo,
   buffers: RectsRenderBuffers,
-  viewTransform: mat4,
-  textureTransform: mat4
+  {
+    viewTransform,
+    textureTransform,
+    backgroundPosition,
+  }: {
+    viewTransform: mat4;
+    textureTransform: mat4;
+    backgroundPosition: BackgroundPosition;
+  }
 ) {
   let drawCalls = 0;
   gl.clearColor(0, 0, 0, 1.0); // black, fully opaque
@@ -580,7 +587,7 @@ function drawScene(
 
   gl.uniform1ui(
     programInfo.uniformLocations.backgroundPosition,
-    BackgroundPosition.TopLeft
+    backgroundPosition
   );
   uniformsSet.add('backgroundPosition');
 
@@ -690,23 +697,26 @@ export function initWebGLRenderer(
 
   let buffers: RectsRenderBuffers | null = null;
   return {
-    render(
-      viewTransform: mat4 = mat4.create(),
-      textureTransform: mat4 = mat4.create()
-    ) {
+    render({
+      viewTransform = mat4.create(),
+      textureTransform = mat4.create(),
+      backgroundPosition = BackgroundPosition.TopLeft,
+    }: {
+      viewTransform?: mat4 | null;
+      textureTransform?: mat4 | null;
+      backgroundPosition?: BackgroundPosition | null;
+    }) {
       if (!buffers) {
         throw new Error(
           'render() called but setRenderableRects() was not called first to initialize scenegraph'
         );
       }
       // Draw the scene
-      return drawScene(
-        gl,
-        programInfo,
-        buffers,
+      return drawScene(gl, programInfo, buffers, {
         viewTransform,
-        textureTransform
-      );
+        textureTransform,
+        backgroundPosition,
+      });
     },
     setRenderableRects: (renderableRects: RenderableRect[]) => {
       if (buffers) {

@@ -1,5 +1,5 @@
 import './style.css';
-import { initWebGLRenderer } from './webglRenderer';
+import { BackgroundPosition, initWebGLRenderer } from './webglRenderer';
 import Rect from './Rect';
 import { getRandomColor } from './webglColorUtils';
 import { mat4 } from 'gl-matrix';
@@ -228,41 +228,45 @@ textureTransformFolder
 const fpsCounterOnFrame = createFPSCounter();
 
 function render() {
-  const transformationMatrix = mat4.create();
+  const viewTransform = mat4.create();
 
   mat4.translate(
-    transformationMatrix, // destination matrix
-    transformationMatrix, // matrix to translate
+    viewTransform, // destination matrix
+    viewTransform, // matrix to translate
     [options.translate.x, options.translate.y, 0] // translation vector
   );
 
   mat4.scale(
-    transformationMatrix, // destination matrix
-    transformationMatrix, // matrix to scale
+    viewTransform, // destination matrix
+    viewTransform, // matrix to scale
     [options.zoom, options.zoom, 1] // scaling vector
   );
 
   // vertex positions are in pixels, scale to NDC
   mat4.scale(
-    transformationMatrix, // destination matrix
-    transformationMatrix, // matrix to scale
+    viewTransform, // destination matrix
+    viewTransform, // matrix to scale
     [1 / canvas.width, 1 / canvas.height, 1] // scaling vector
   );
 
-  const textureTransformMatrix = mat4.create();
+  const textureTransform = mat4.create();
 
   mat4.translate(
-    textureTransformMatrix, // destination matrix
-    textureTransformMatrix, // matrix to translate
+    textureTransform, // destination matrix
+    textureTransform, // matrix to translate
     [-options.textureTranslate.x, -options.textureTranslate.y, 0] // translation vector
   );
-  mat4.scale(textureTransformMatrix, textureTransformMatrix, [
+  mat4.scale(textureTransform, textureTransform, [
     options.zoom,
     options.zoom,
     1,
   ]); // scaling vector
 
-  renderer.render(transformationMatrix, textureTransformMatrix);
+  renderer.render({
+    viewTransform,
+    textureTransform,
+    backgroundPosition: BackgroundPosition.TopLeft,
+  });
 }
 function animationLoop() {
   render();
