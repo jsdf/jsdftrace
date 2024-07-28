@@ -1,12 +1,26 @@
-import { createTextTextureAtlases } from "./textTextureAtlasRenderingUtils";
-// worker receives text strings and returns a texture atlas
-onmessage = async (event) => {
-  const textLabels = event.data;
-  // render the text  to image bitmaps,
-  // pack the image bitmaps into one or more texture atlases, and return them
-  // along with the mapping from text to texture coordinates
+import * as Comlink from "comlink";
 
-  const textureAtlases = createTextTextureAtlases(textLabels);
+import {
+  createTextureAtlases,
+  generateImageBitmapsForTextAsync,
+} from "./textTextureAtlasRenderingUtils";
 
-  postMessage(textureAtlases);
+const worker = {
+  async renderText(
+    strings: string[],
+    textCanvasHeight?: number | null,
+    pixelRatio: number = 1
+  ) {
+    return await generateImageBitmapsForTextAsync(
+      strings,
+      textCanvasHeight,
+      pixelRatio
+    );
+  },
+
+  createTextureAtlases,
 };
+
+Comlink.expose(worker);
+
+export type TextRenderingWorker = typeof worker;
