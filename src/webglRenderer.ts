@@ -702,9 +702,9 @@ export function initWebGLRenderer(
       textureTransform = mat4.create(),
       backgroundPosition = BackgroundPosition.TopLeft,
     }: {
-      viewTransform?: mat4 | null;
-      textureTransform?: mat4 | null;
-      backgroundPosition?: BackgroundPosition | null;
+      viewTransform: mat4;
+      textureTransform: mat4;
+      backgroundPosition: BackgroundPosition;
     }) {
       if (!buffers) {
         throw new Error(
