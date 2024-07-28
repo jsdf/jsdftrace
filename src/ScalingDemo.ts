@@ -252,22 +252,8 @@ function initRenderer(
       [1 / canvas.width, 1 / canvas.height, 1] // scaling vector
     );
 
-    const textureTransform = mat4.create();
-
-    mat4.translate(
-      textureTransform, // destination matrix
-      textureTransform, // matrix to translate
-      [-options.textureTranslate.x, -options.textureTranslate.y, 0] // translation vector
-    );
-    mat4.scale(textureTransform, textureTransform, [
-      options.zoom,
-      options.zoom,
-      1,
-    ]); // scaling vector
-
     renderer.render({
       viewTransform,
-      textureTransform,
       backgroundPosition: BackgroundPosition.TopLeft,
     });
   }
