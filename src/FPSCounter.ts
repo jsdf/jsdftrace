@@ -3,13 +3,18 @@ let lastUpdateSecond = 0;
 let lastUpdateFPS = 0;
 let lastUpdateAvgFrameTime = 0;
 export default function createFPSCounter() {
-  const root = document.createElement('div');
-  root.style.position = 'absolute';
-  root.style.top = '0';
-  root.style.left = '0';
+  const root = document.createElement("div");
+  root.style.position = "fixed";
+  root.style.top = "0";
+  root.style.left = "0";
+  root.style.color = "white";
+  root.style.backgroundColor = "black";
+  root.style.padding = "4px";
+  root.style.fontFamily = '"Lucida Grande", sans-serif';
+  root.style.fontSize = "11px";
   document.body.appendChild(root);
-  const line1 = document.createElement('div');
-  const line2 = document.createElement('div');
+  const line1 = document.createElement("div");
+  const line2 = document.createElement("div");
   root.appendChild(line1);
   root.appendChild(line2);
 

@@ -5,7 +5,7 @@ in vec4 vColor;
 in vec2 vTextureCoord;
 in vec4 textureClippingCoords;
 
-uniform sampler2D uSampler;
+uniform sampler2D uTextureSampler;
 
 out vec4 FragColor;
 
@@ -18,7 +18,7 @@ void main(void) {
         FragColor = vColor;
     } else {
         // sample the texture 
-        vec4 texel = texture(uSampler, vTextureCoord);
+        vec4 texel = texture(uTextureSampler, vTextureCoord);
         FragColor = mix(vColor, texel, texel.a);
     }
 }

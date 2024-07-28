@@ -2,7 +2,7 @@ import Rect from "./Rect";
 const DEBUG_USE_SMALL_TEXTURES = false; // to make it easier to test the behavior of exceeding the texture size
 const TEXTURE_SIZE_X = DEBUG_USE_SMALL_TEXTURES ? 1024 : 2048;
 const TEXTURE_SIZE_Y = DEBUG_USE_SMALL_TEXTURES ? 256 : 2048;
-const font = "12px sans-serif";
+const font = '11px "Lucida Grande", sans-serif';
 export function generateImageBitmapsForText(
   strings: string[],
   textCanvasHeight?: number | null,

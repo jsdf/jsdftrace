@@ -2,7 +2,7 @@ import "./style.css";
 import { BackgroundPosition, initWebGLRenderer } from "./webglRenderer";
 import Rect from "./Rect";
 import { getRandomColor } from "./webglColorUtils";
-import { mat4 } from "gl-matrix";
+import { mat4, vec2 } from "gl-matrix";
 
 import * as datgui from "dat.gui";
 import { createTextRenderingWorkerPool } from "./textRenderingWorkerHost";
@@ -15,7 +15,7 @@ import type { TextTextureAtlas } from "./textTextureAtlasRenderingUtils";
 
 const canvas = document.createElement("canvas");
 document.querySelector<HTMLDivElement>("#app")!.appendChild(canvas);
-canvas.width = window.innerWidth * 0.95 * devicePixelRatio;
+canvas.width = window.innerWidth * devicePixelRatio;
 canvas.height = window.innerHeight * 0.8 * devicePixelRatio;
 canvas.style.width = `${canvas.width / devicePixelRatio}px`;
 canvas.style.height = `${canvas.height / devicePixelRatio}px`;
@@ -180,7 +180,7 @@ function initRenderer(
   gl: WebGL2RenderingContext,
   textureAtlases: TextTextureAtlas[]
 ) {
-  debugDrawTextureAtlases(textureAtlases);
+  // debugDrawTextureAtlases(textureAtlases);
 
   const labelsInTextureAtlases = new Map<
     string,
@@ -245,15 +245,15 @@ function initRenderer(
       [options.zoom, options.zoom, 1] // scaling vector
     );
 
-    // vertex positions are in pixels, scale to NDC
-    mat4.scale(
-      viewTransform, // destination matrix
-      viewTransform, // matrix to scale
-      [1 / canvas.width, 1 / canvas.height, 1] // scaling vector
+    const textureOffset = vec2.fromValues(
+      options.textureTranslate.x,
+      options.textureTranslate.y
     );
 
     renderer.render({
+      viewport: vec2.fromValues(canvas.width, canvas.height),
       viewTransform,
+      textureOffset,
       backgroundPosition: BackgroundPosition.TopLeft,
     });
   }

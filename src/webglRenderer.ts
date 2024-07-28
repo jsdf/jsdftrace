@@ -253,11 +253,11 @@ type ProgramInfo = {
     aRectTextureRatio: number;
   };
   uniformLocations: {
-    projectionMatrix: WebGLUniformLocation;
-    modelViewMatrix: WebGLUniformLocation;
-    texture: WebGLUniformLocation;
-    textureTransform: WebGLUniformLocation;
-    backgroundPosition: WebGLUniformLocation;
+    uProjectionMatrix: WebGLUniformLocation;
+    uModelViewMatrix: WebGLUniformLocation;
+    uTextureSampler: WebGLUniformLocation;
+    uModelViewScale: WebGLUniformLocation;
+    uBackgroundPosition: WebGLUniformLocation;
   };
 };
 
@@ -509,23 +509,61 @@ mat4.scale(
   [2, 2, 1] // scaling vector. scale to the full viewport (-1 to 1)
 );
 
+function makeUniformSetter(
+  gl: WebGL2RenderingContext,
+  programInfo: ProgramInfo
+) {
+  const uniformsSet = new Set();
+
+  const expectedUniforms = new Set(Object.keys(programInfo.uniformLocations));
+
+  function set(name: string, setter: (location: WebGLUniformLocation) => void) {
+    expectedUniforms.has(name);
+    const uniformLocations = programInfo.uniformLocations as {
+      [key: string]: WebGLUniformLocation;
+    };
+    const location = uniformLocations[name];
+    setter(location);
+
+    checkErrors && checkGLError(gl, "setting " + name + " uniform");
+    uniformsSet.add(name);
+  }
+
+  function checkAllSet() {
+    const expectedUniforms = new Set(Object.keys(programInfo.uniformLocations));
+    // check that all uniforms were set
+    assertSetsMatch(expectedUniforms, uniformsSet, "uniforms set");
+  }
+  return {
+    set,
+    checkAllSet,
+  };
+}
+
 function drawScene(
   gl: WebGL2RenderingContext,
   programInfo: ProgramInfo,
   buffers: RectsRenderBuffers,
   {
     viewTransform,
+    textureOffset, // TODO: figure out how to apply an offset in texels
     backgroundPosition,
+    viewport,
   }: {
+    viewport: vec2;
     viewTransform: mat4;
+    textureOffset: vec2;
     backgroundPosition: BackgroundPosition;
   }
 ) {
   // when rendering textures in screen space, we need to scale the texture
   // coordinates along with the view transform so that the texture doesn't
   // stretch as the view is zoomed in.
-  const textureScaling = mat4.getScaling(vec3.create(), viewTransform);
-  const textureTransform = mat4.fromScaling(mat4.create(), textureScaling);
+  const modelViewScaling3d = mat4.getScaling(vec3.create(), viewTransform);
+  const modelViewScaling = vec2.fromValues(
+    modelViewScaling3d[0],
+    modelViewScaling3d[1]
+  );
 
   let drawCalls = 0;
   gl.clearColor(0, 0, 0, 1.0); // black, fully opaque
@@ -550,6 +588,13 @@ function drawScene(
   // matrix multiplication is right to left, so this effectively applies the
   // default transformation matrix first, then the view transformation matrix
   mat4.multiply(modelViewMatrix, modelViewMatrix, viewTransform);
+  // vertex positions are in pixels, scale to NDC
+  mat4.scale(
+    modelViewMatrix, // destination matrix
+    modelViewMatrix, // matrix to scale
+    [1 / viewport[0], 1 / viewport[1], 1] // scaling vector
+  );
+
   mat4.multiply(modelViewMatrix, modelViewMatrix, defaultTransform);
 
   // enable the vao
@@ -561,50 +606,32 @@ function drawScene(
   gl.useProgram(programInfo.program);
   checkErrors && checkGLError(gl, "using program");
 
-  const uniformsSet = new Set();
+  const uniforms = makeUniformSetter(gl, programInfo);
 
   // Set the shader uniforms
+  uniforms.set("uProjectionMatrix", (location) => {
+    gl.uniformMatrix4fv(location, false, projectionMatrix);
+  });
 
-  gl.uniformMatrix4fv(
-    programInfo.uniformLocations.projectionMatrix,
-    false,
-    projectionMatrix
-  );
-  checkErrors && checkGLError(gl, "setting projection matrix uniform");
-  uniformsSet.add("projectionMatrix");
+  uniforms.set("uModelViewMatrix", (location) => {
+    gl.uniformMatrix4fv(location, false, modelViewMatrix);
+  });
 
-  gl.uniformMatrix4fv(
-    programInfo.uniformLocations.modelViewMatrix,
-    false,
-    modelViewMatrix
-  );
-  checkErrors && checkGLError(gl, "setting model view matrix uniform");
-  uniformsSet.add("modelViewMatrix");
+  uniforms.set("uTextureSampler", (location) => {
+    gl.uniform1i(location, 0 /* index of texture unit */);
+  });
 
-  gl.uniform1i(
-    programInfo.uniformLocations.texture,
-    0 /* index of texture unit */
-  );
-  uniformsSet.add("texture");
+  uniforms.set("uBackgroundPosition", (location) => {
+    gl.uniform1ui(location, backgroundPosition);
+  });
 
-  gl.uniform1ui(
-    programInfo.uniformLocations.backgroundPosition,
-    backgroundPosition
-  );
-  uniformsSet.add("backgroundPosition");
-
-  gl.uniformMatrix4fv(
-    programInfo.uniformLocations.textureTransform,
-    false,
-    textureTransform
-  );
-  checkErrors && checkGLError(gl, "setting texture transform uniform");
-  uniformsSet.add("textureTransform");
+  uniforms.set("uModelViewScale", (location) => {
+    gl.uniform2fv(location, modelViewScaling);
+  });
 
   // enable the texture
   gl.activeTexture(gl.TEXTURE0);
 
-  debugger;
   // draw in batches
   for (let [
     texture,
@@ -614,14 +641,12 @@ function drawScene(
     gl.bindTexture(gl.TEXTURE_2D, texture);
     checkErrors && checkGLError(gl, "binding texture");
     const type = gl.UNSIGNED_SHORT;
-    gl.drawElements(gl.TRIANGLES, /*count*/ RECT_INDICES, type, offset);
+    gl.drawElements(gl.TRIANGLES, count, type, offset);
     checkErrors && checkGLError(gl, "drawing elements");
     drawCalls++;
   }
 
-  const expectedUniforms = new Set(Object.keys(programInfo.uniformLocations));
-  // check that all uniforms were set
-  assertSetsMatch(expectedUniforms, uniformsSet, "uniforms set");
+  uniforms.checkAllSet();
 
   gl.bindVertexArray(null); // unbind the vao
   return drawCalls;
@@ -671,23 +696,27 @@ export function initWebGLRenderer(
       ),
     },
     uniformLocations: {
-      projectionMatrix: getUniformLocationOrThrow(
+      uProjectionMatrix: getUniformLocationOrThrow(
         gl,
         shaderProgram,
         "uProjectionMatrix"
       ),
-      modelViewMatrix: getUniformLocationOrThrow(
+      uModelViewMatrix: getUniformLocationOrThrow(
         gl,
         shaderProgram,
         "uModelViewMatrix"
       ),
-      texture: getUniformLocationOrThrow(gl, shaderProgram, "uSampler"),
-      textureTransform: getUniformLocationOrThrow(
+      uTextureSampler: getUniformLocationOrThrow(
         gl,
         shaderProgram,
-        "uTextureTransform"
+        "uTextureSampler"
       ),
-      backgroundPosition: getUniformLocationOrThrow(
+      uModelViewScale: getUniformLocationOrThrow(
+        gl,
+        shaderProgram,
+        "uModelViewScale"
+      ),
+      uBackgroundPosition: getUniformLocationOrThrow(
         gl,
         shaderProgram,
         "uBackgroundPosition"
@@ -700,10 +729,14 @@ export function initWebGLRenderer(
   let buffers: RectsRenderBuffers | null = null;
   return {
     render({
+      viewport,
       viewTransform = mat4.create(),
+      textureOffset = vec2.create(),
       backgroundPosition = BackgroundPosition.TopLeft,
     }: {
+      viewport: vec2;
       viewTransform: mat4;
+      textureOffset: vec2;
       backgroundPosition: BackgroundPosition;
     }) {
       if (!buffers) {
@@ -713,7 +746,9 @@ export function initWebGLRenderer(
       }
       // Draw the scene
       return drawScene(gl, programInfo, buffers, {
+        viewport,
         viewTransform,
+        textureOffset,
         backgroundPosition,
       });
     },
