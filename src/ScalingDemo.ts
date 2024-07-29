@@ -109,7 +109,7 @@ console.log(rectInputs);
 const options = {
   translate: { x: 0, y: 0 },
   zoom: 1,
-  textureTranslate: { x: 0, y: 0 },
+  textureTranslate: { x: 16, y: 16 },
 };
 
 const gui = new datgui.GUI();
@@ -122,14 +122,14 @@ const textureTransformFolder = gui.addFolder("Texture Transform");
 textureTransformFolder.open();
 textureTransformFolder
   .add(options.textureTranslate, "x")
-  .min(-1)
-  .max(1)
-  .step(0.01);
+  .min(-100)
+  .max(100)
+  .step(0.1);
 textureTransformFolder
   .add(options.textureTranslate, "y")
-  .min(-1)
-  .max(1)
-  .step(0.01);
+  .min(-100)
+  .max(100)
+  .step(0.1);
 
 const fpsCounterOnFrame = createFPSCounter();
 
@@ -212,23 +212,27 @@ function initRenderer(
 
   const renderer = initWebGLRenderer(gl);
 
-  renderer.setRenderableRects(
-    rectInputs
-      // .filter((rectInput) => textureAtlases[0].mapping.has(rectInput.label))
-      .map((rectInput) => {
-        const labelInAtlas = labelsInTextureAtlases.get(rectInput.label);
-        if (!labelInAtlas) {
-          throw new Error("couldnt find label in texture atlases");
-        }
-        return {
-          backgroundColor: getRandomColor(),
-          rect: rectInput.rect,
-          texture: labelInAtlas.texture,
-          textureImageSize: labelInAtlas.textureImageSize,
-          textureImagePieceRect: labelInAtlas.textureImagePieceRect,
-        };
-      })
-  );
+  function createRects() {
+    renderer.setRenderableRects(
+      rectInputs
+        // .filter((rectInput) => textureAtlases[0].mapping.has(rectInput.label))
+        .map((rectInput) => {
+          const labelInAtlas = labelsInTextureAtlases.get(rectInput.label);
+          if (!labelInAtlas) {
+            throw new Error("couldnt find label in texture atlases");
+          }
+          return {
+            backgroundColor: getRandomColor(),
+            rect: rectInput.rect,
+            texture: labelInAtlas.texture,
+            textureImageSize: labelInAtlas.textureImageSize,
+            textureImagePieceRect: labelInAtlas.textureImagePieceRect,
+            textureOffset: new Vec2d({ x: 4, y: 4 }),
+          };
+        })
+    );
+  }
+  createRects();
 
   function render() {
     const viewTransform = mat4.create();
@@ -253,8 +257,8 @@ function initRenderer(
     renderer.render({
       viewport: vec2.fromValues(canvas.width, canvas.height),
       viewTransform,
-      textureOffset,
       backgroundPosition: BackgroundPosition.TopLeft,
+      textureOffset,
     });
   }
 

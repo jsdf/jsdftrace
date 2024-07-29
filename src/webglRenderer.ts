@@ -3,6 +3,7 @@ import Rect from "./Rect";
 import vertexShaderSource from "./vertexShader.glsl";
 import fragmentShaderSource from "./fragmentShader.glsl";
 import Vec2d from "./Vec2d";
+import { nullthrows } from "./nullthrows";
 
 export type RenderableRect = {
   rect: Rect;
@@ -10,6 +11,7 @@ export type RenderableRect = {
   texture: WebGLTexture;
   textureImageSize: Vec2d;
   textureImagePieceRect: Rect;
+  textureOffset: Vec2d;
 };
 const SIZE_OF_FLOAT32 = 4;
 const POSITION_COMPONENTS = 3;
@@ -55,6 +57,36 @@ function initShaderProgram(
     throw new Error(
       "Unable to initialize the shader program: " +
         (gl.getProgramInfoLog(shaderProgram) || "")
+    );
+  }
+
+  const numUniforms = gl.getProgramParameter(shaderProgram, gl.ACTIVE_UNIFORMS);
+
+  // Loop through all the active uniforms
+  for (let i = 0; i < numUniforms; ++i) {
+    // Get the information about the uniform
+    const uniformInfo = nullthrows(gl.getActiveUniform(shaderProgram, i));
+
+    // Log the uniform name
+    console.log(
+      `Uniform ${i}: Name = ${uniformInfo.name}, Type = ${uniformInfo.type}, Size = ${uniformInfo.size}`
+    );
+  }
+
+  // Get the number of active attributes in the shader program
+  const numAttributes = gl.getProgramParameter(
+    shaderProgram,
+    gl.ACTIVE_ATTRIBUTES
+  );
+
+  // Loop through all the active attributes
+  for (let i = 0; i < numAttributes; ++i) {
+    // Get the information about the attribute
+    const attributeInfo = nullthrows(gl.getActiveAttrib(shaderProgram, i));
+
+    // Log the attribute name
+    console.log(
+      `Attribute ${i}: Name = ${attributeInfo.name}, Type = ${attributeInfo.type}, Size = ${attributeInfo.size}`
     );
   }
 
@@ -179,6 +211,84 @@ function getUniformLocationOrThrow(
   return location;
 }
 
+function makeUniformSetter(
+  gl: WebGL2RenderingContext,
+  programInfo: ProgramInfo
+) {
+  const uniformsSet = new Set();
+
+  const expectedUniforms = new Set(uniformNames);
+
+  function set(
+    name: Uniforms,
+    setter: (location: WebGLUniformLocation) => void
+  ) {
+    expectedUniforms.has(name);
+    const uniformLocations = programInfo.uniformLocations as {
+      [key in Uniforms]: WebGLUniformLocation;
+    };
+    const location = uniformLocations[name];
+    setter(location);
+
+    checkErrors && checkGLError(gl, "setting " + name + " uniform");
+    uniformsSet.add(name);
+  }
+
+  function checkAllSet() {
+    const expectedUniforms = new Set(Object.keys(programInfo.uniformLocations));
+    // check that all uniforms were set
+    assertSetsMatch(expectedUniforms, uniformsSet, "uniforms set");
+  }
+  return {
+    set,
+    checkAllSet,
+  };
+}
+
+function makeAttribSetter(
+  gl: WebGL2RenderingContext,
+  programInfo: ProgramInfo
+) {
+  const attributesSet = new Set();
+
+  const expectedAttributes = new Set(attributeNames);
+
+  const boundBuffers: WebGLBuffer[] = [];
+
+  function set(
+    name: Attributes,
+    setter: (location: number, name: Attributes) => void
+  ): WebGLBuffer | null {
+    expectedAttributes.has(name);
+    const attribLocations = programInfo.attribLocations as {
+      [key in Attributes]: number;
+    };
+    const location = attribLocations[name];
+
+    const buffer = setter(location, name);
+    if (buffer != null) {
+      boundBuffers.push(buffer);
+    }
+
+    checkErrors && checkGLError(gl, "setting " + name + " attribute");
+    attributesSet.add(name);
+    return null;
+  }
+
+  function checkAllSet() {
+    const expectedAttributes = new Set(
+      Object.keys(programInfo.attribLocations)
+    );
+    // check that all attributes were set
+    assertSetsMatch(expectedAttributes, attributesSet, "attributes set");
+  }
+  return {
+    set,
+    checkAllSet,
+    getBoundBuffers: () => boundBuffers,
+  };
+}
+
 // creates a buffer of float vertex attributes and binds it to the given attribute location
 // assumes that the data for this attribute is stored linearly rather than interleaved
 // with other attributes.
@@ -243,22 +353,36 @@ function createAndBindFloatAttribVertexArray(
   return buffer;
 }
 
+const attributeNames = [
+  "aVertexPosition",
+  "aVertexColor",
+  "aTextureCoord",
+  "aTexturePieceRect",
+  "aRectTexturedAreaRatio",
+  "aRectSize",
+  "aTextureOffset",
+] as const;
+
+type Attributes = (typeof attributeNames)[number];
+
+const uniformNames = [
+  "uProjectionMatrix",
+  "uModelViewMatrix",
+  "uTextureSampler",
+  "uModelViewScale",
+  "uBackgroundPosition",
+  "uViewportSize",
+  "uTextureOffset",
+] as const;
+
+type Uniforms = (typeof uniformNames)[number];
+
 type ProgramInfo = {
   program: WebGLProgram;
   attribLocations: {
-    aVertexPosition: number;
-    aVertexColor: number;
-    aTextureCoord: number;
-    aTexturePieceRect: number;
-    aRectTextureRatio: number;
+    [key in Attributes]: number;
   };
-  uniformLocations: {
-    uProjectionMatrix: WebGLUniformLocation;
-    uModelViewMatrix: WebGLUniformLocation;
-    uTextureSampler: WebGLUniformLocation;
-    uModelViewScale: WebGLUniformLocation;
-    uBackgroundPosition: WebGLUniformLocation;
-  };
+  uniformLocations: { [key in Uniforms]: WebGLUniformLocation };
 };
 
 export type RectsRenderBuffers = {
@@ -344,56 +468,51 @@ function initBuffers(
     throw new Error("unable to create vertex array object");
   }
   gl.bindVertexArray(vao);
-  const attributesDefined = new Set();
-
-  const boundBuffers = [];
+  const attributes = makeAttribSetter(gl, programInfo);
 
   const numVertices = positions.length / POSITION_COMPONENTS;
 
   // vertices that will be reused each render
-  boundBuffers.push(
+  attributes.set("aVertexPosition", (attribLocation) =>
     createAndBindFloatAttribVertexArray(gl, "aVertexPosition", {
-      attribLocation: programInfo.attribLocations.aVertexPosition,
+      attribLocation,
       dataArray: positions,
       numComponents: POSITION_COMPONENTS,
       numVertices,
     })
   );
-  attributesDefined.add("aVertexPosition");
 
-  boundBuffers.push(
-    createAndBindFloatAttribVertexArray(gl, "aVertexColor", {
-      attribLocation: programInfo.attribLocations.aVertexColor,
+  attributes.set("aVertexColor", (attribLocation, name) =>
+    createAndBindFloatAttribVertexArray(gl, name, {
+      attribLocation,
       dataArray: colors,
       numComponents: COLOR_COMPONENTS,
       numVertices,
     })
   );
-  attributesDefined.add("aVertexColor");
 
   const texturePieceRects: number[] = [];
   rects.forEach((rect: RenderableRect) => {
     // for each rect vert
     for (let i = 0; i < RECT_VERTICES; i++) {
       texturePieceRects.push(
-        // position of the texture piece in the texture atlas
-        rect.textureImagePieceRect.position.x,
-        rect.textureImagePieceRect.position.y,
-        // the size of the texture piece in the texture atlas
-        rect.textureImagePieceRect.size.x,
-        rect.textureImagePieceRect.size.y
+        // position of the texture piece in the texture atlas in texture coordinate space
+        rect.textureImagePieceRect.position.x / rect.textureImageSize.x,
+        rect.textureImagePieceRect.position.y / rect.textureImageSize.y,
+        // the size of the texture piece in the texture atlas in texture coordinate space
+        rect.textureImagePieceRect.size.x / rect.textureImageSize.x,
+        rect.textureImagePieceRect.size.y / rect.textureImageSize.y
       );
     }
   });
-  boundBuffers.push(
-    createAndBindFloatAttribVertexArray(gl, "aTexturePieceRect", {
-      attribLocation: programInfo.attribLocations.aTexturePieceRect,
+  attributes.set("aTexturePieceRect", (attribLocation, name) =>
+    createAndBindFloatAttribVertexArray(gl, name, {
+      attribLocation,
       dataArray: texturePieceRects,
       numComponents: 4,
       numVertices,
     })
   );
-  attributesDefined.add("aTexturePieceRect");
 
   // Create a buffer for the texture coordinates
   const textureCoordinates: number[] = [];
@@ -413,50 +532,81 @@ function initBuffers(
         textureCoordinatesForRect[j][1]
       );
     }
-
-    // // just use full texture (for debuggging)
-    // textureCoordinates.push(
-    //   ...[0, 0], // top left
-    //   ...[1, 0], // top right
-    //   ...[0, 1], // bottom left
-    //   ...[1, 1] // bottom right
-    // );
   }
   console.log({ textureCoordinates });
-  boundBuffers.push(
-    createAndBindFloatAttribVertexArray(gl, "aTextureCoord", {
-      attribLocation: programInfo.attribLocations.aTextureCoord,
+  attributes.set("aTextureCoord", (attribLocation, name) =>
+    createAndBindFloatAttribVertexArray(gl, name, {
+      attribLocation,
       dataArray: textureCoordinates,
       numComponents: 2,
       numVertices,
     })
   );
-  attributesDefined.add("aTextureCoord");
 
   // Create a buffer for the texture ratio
-  const textureRatios: number[] = [];
+  const rectTexturedAreaRatio: number[] = [];
   rects.forEach((rect: RenderableRect) => {
     // for each rect vert
     for (let i = 0; i < RECT_VERTICES; i++) {
-      textureRatios.push(
+      rectTexturedAreaRatio.push(
+        // The ratio of the textured area to the rect size.
+        // Basically, how much smaller the textured region is than
+        // the rect.
+        // Note: this assumes that the texture piece will be rendered
+        // at 1:1 pixel scale with the rect.
         rect.textureImagePieceRect.size.x / rect.rect.size.x,
         rect.textureImagePieceRect.size.y / rect.rect.size.y
       );
     }
   });
-  console.log({ textureRatios });
-  boundBuffers.push(
-    createAndBindFloatAttribVertexArray(gl, "aRectTextureRatio", {
-      attribLocation: programInfo.attribLocations.aRectTextureRatio,
-      dataArray: textureRatios,
+  console.log({ rectTexturedAreaRatio });
+  attributes.set("aRectTexturedAreaRatio", (attribLocation, name) =>
+    createAndBindFloatAttribVertexArray(gl, name, {
+      attribLocation,
+      dataArray: rectTexturedAreaRatio,
       numComponents: 2,
       numVertices,
     })
   );
-  attributesDefined.add("aRectTextureRatio");
 
+  // Create a buffer for the rect size
+  const rectSizes: number[] = [];
+  rects.forEach((rect: RenderableRect) => {
+    // for each rect vert
+    for (let i = 0; i < RECT_VERTICES; i++) {
+      rectSizes.push(rect.rect.size.x, rect.rect.size.y);
+    }
+  });
+  console.log({ rectSizes });
+  attributes.set("aRectSize", (attribLocation, name) =>
+    createAndBindFloatAttribVertexArray(gl, name, {
+      attribLocation,
+      dataArray: rectSizes,
+      numComponents: 2,
+      numVertices,
+    })
+  );
+
+  // Create a buffer for the texture offset
+  const textureOffsets: number[] = [];
+  rects.forEach((rect: RenderableRect) => {
+    // for each rect vert
+    for (let i = 0; i < RECT_VERTICES; i++) {
+      textureOffsets.push(rect.textureOffset.x, rect.textureOffset.y);
+    }
+  });
+  console.log({ textureOffsets });
+  attributes.set("aTextureOffset", (attribLocation, name) =>
+    createAndBindFloatAttribVertexArray(gl, name, {
+      attribLocation,
+      dataArray: textureOffsets,
+      numComponents: 2,
+      numVertices,
+    })
+  );
+
+  const indexBuffer = gl.createBuffer();
   {
-    const indexBuffer = gl.createBuffer();
     if (!indexBuffer) {
       throw new Error("unable to create index buffer");
     }
@@ -466,20 +616,15 @@ function initBuffers(
       new Uint16Array(indices),
       gl.STATIC_DRAW
     );
-    boundBuffers.push(indexBuffer);
   }
 
-  const expectedAttributes = new Set(Object.keys(programInfo.attribLocations));
-  // check that all attributes were set
-  assertSetsMatch(expectedAttributes, attributesDefined, "attributes set");
+  attributes.checkAllSet();
 
   gl.bindVertexArray(null); // unbind the vao
 
   return {
     rects,
-    boundBuffers: boundBuffers.filter(
-      (buffer) => buffer !== null
-    ) as WebGLBuffer[],
+    boundBuffers: attributes.getBoundBuffers().concat(indexBuffer),
     texturesToElementRanges,
     vao,
   };
@@ -509,51 +654,20 @@ mat4.scale(
   [2, 2, 1] // scaling vector. scale to the full viewport (-1 to 1)
 );
 
-function makeUniformSetter(
-  gl: WebGL2RenderingContext,
-  programInfo: ProgramInfo
-) {
-  const uniformsSet = new Set();
-
-  const expectedUniforms = new Set(Object.keys(programInfo.uniformLocations));
-
-  function set(name: string, setter: (location: WebGLUniformLocation) => void) {
-    expectedUniforms.has(name);
-    const uniformLocations = programInfo.uniformLocations as {
-      [key: string]: WebGLUniformLocation;
-    };
-    const location = uniformLocations[name];
-    setter(location);
-
-    checkErrors && checkGLError(gl, "setting " + name + " uniform");
-    uniformsSet.add(name);
-  }
-
-  function checkAllSet() {
-    const expectedUniforms = new Set(Object.keys(programInfo.uniformLocations));
-    // check that all uniforms were set
-    assertSetsMatch(expectedUniforms, uniformsSet, "uniforms set");
-  }
-  return {
-    set,
-    checkAllSet,
-  };
-}
-
 function drawScene(
   gl: WebGL2RenderingContext,
   programInfo: ProgramInfo,
   buffers: RectsRenderBuffers,
   {
     viewTransform,
-    textureOffset, // TODO: figure out how to apply an offset in texels
     backgroundPosition,
     viewport,
+    textureOffset,
   }: {
     viewport: vec2;
     viewTransform: mat4;
-    textureOffset: vec2;
     backgroundPosition: BackgroundPosition;
+    textureOffset: vec2;
   }
 ) {
   // when rendering textures in screen space, we need to scale the texture
@@ -629,6 +743,14 @@ function drawScene(
     gl.uniform2fv(location, modelViewScaling);
   });
 
+  uniforms.set("uViewportSize", (location) => {
+    gl.uniform2fv(location, viewport);
+  });
+
+  uniforms.set("uTextureOffset", (location) => {
+    gl.uniform2fv(location, textureOffset);
+  });
+
   // enable the texture
   gl.activeTexture(gl.TEXTURE0);
 
@@ -672,56 +794,18 @@ export function initWebGLRenderer(
   // for aVertexPosition and look up uniform locations.
   const programInfo: ProgramInfo = {
     program: shaderProgram,
-    attribLocations: {
-      aVertexPosition: getAttribLocationOrThrow(
-        gl,
-        shaderProgram,
-        "aVertexPosition"
-      ),
-      aVertexColor: getAttribLocationOrThrow(gl, shaderProgram, "aVertexColor"),
-      aTextureCoord: getAttribLocationOrThrow(
-        gl,
-        shaderProgram,
-        "aTextureCoord"
-      ),
-      aTexturePieceRect: getAttribLocationOrThrow(
-        gl,
-        shaderProgram,
-        "aTexturePieceRect"
-      ),
-      aRectTextureRatio: getAttribLocationOrThrow(
-        gl,
-        shaderProgram,
-        "aRectTextureRatio"
-      ),
-    },
-    uniformLocations: {
-      uProjectionMatrix: getUniformLocationOrThrow(
-        gl,
-        shaderProgram,
-        "uProjectionMatrix"
-      ),
-      uModelViewMatrix: getUniformLocationOrThrow(
-        gl,
-        shaderProgram,
-        "uModelViewMatrix"
-      ),
-      uTextureSampler: getUniformLocationOrThrow(
-        gl,
-        shaderProgram,
-        "uTextureSampler"
-      ),
-      uModelViewScale: getUniformLocationOrThrow(
-        gl,
-        shaderProgram,
-        "uModelViewScale"
-      ),
-      uBackgroundPosition: getUniformLocationOrThrow(
-        gl,
-        shaderProgram,
-        "uBackgroundPosition"
-      ),
-    },
+    attribLocations: Object.fromEntries(
+      attributeNames.map((name: Attributes) => [
+        name,
+        getAttribLocationOrThrow(gl, shaderProgram, name),
+      ])
+    ) as { [key in Attributes]: number },
+    uniformLocations: Object.fromEntries(
+      uniformNames.map((name: Uniforms) => [
+        name,
+        getUniformLocationOrThrow(gl, shaderProgram, name),
+      ])
+    ) as { [key in Uniforms]: WebGLUniformLocation },
   };
 
   checkErrors && checkGLError(gl, "initWebGLRenderer");
@@ -731,13 +815,13 @@ export function initWebGLRenderer(
     render({
       viewport,
       viewTransform = mat4.create(),
-      textureOffset = vec2.create(),
       backgroundPosition = BackgroundPosition.TopLeft,
+      textureOffset = vec2.create(),
     }: {
       viewport: vec2;
       viewTransform: mat4;
-      textureOffset: vec2;
       backgroundPosition: BackgroundPosition;
+      textureOffset: vec2;
     }) {
       if (!buffers) {
         throw new Error(
@@ -748,8 +832,8 @@ export function initWebGLRenderer(
       return drawScene(gl, programInfo, buffers, {
         viewport,
         viewTransform,
-        textureOffset,
         backgroundPosition,
+        textureOffset,
       });
     },
     setRenderableRects: (renderableRects: RenderableRect[]) => {
