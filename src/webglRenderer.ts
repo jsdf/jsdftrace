@@ -359,7 +359,7 @@ const attributeNames = [
   "aTextureCoord",
   "aTexturePieceRect",
   "aRectTexturedAreaRatio",
-  "aRectSize",
+  "aRect",
   "aTextureOffset",
 ] as const;
 
@@ -373,6 +373,7 @@ const uniformNames = [
   "uBackgroundPosition",
   "uViewportSize",
   "uTextureOffset",
+  "uMouse",
 ] as const;
 
 type Uniforms = (typeof uniformNames)[number];
@@ -574,15 +575,20 @@ function initBuffers(
   rects.forEach((rect: RenderableRect) => {
     // for each rect vert
     for (let i = 0; i < RECT_VERTICES; i++) {
-      rectSizes.push(rect.rect.size.x, rect.rect.size.y);
+      rectSizes.push(
+        rect.rect.position.x,
+        rect.rect.position.y,
+        rect.rect.size.x,
+        rect.rect.size.y
+      );
     }
   });
   console.log({ rectSizes });
-  attributes.set("aRectSize", (attribLocation, name) =>
+  attributes.set("aRect", (attribLocation, name) =>
     createAndBindFloatAttribVertexArray(gl, name, {
       attribLocation,
       dataArray: rectSizes,
-      numComponents: 2,
+      numComponents: 4,
       numVertices,
     })
   );
@@ -663,11 +669,13 @@ function drawScene(
     backgroundPosition,
     viewport,
     textureOffset,
+    mouseState,
   }: {
     viewport: vec2;
     viewTransform: mat4;
     backgroundPosition: BackgroundPosition;
     textureOffset: vec2;
+    mouseState?: { x: number; y: number; pressed: number };
   }
 ) {
   // when rendering textures in screen space, we need to scale the texture
@@ -751,6 +759,14 @@ function drawScene(
     gl.uniform2fv(location, textureOffset);
   });
 
+  uniforms.set("uMouse", (location) => {
+    gl.uniform3fv(location, [
+      (mouseState?.x ?? 0) * devicePixelRatio,
+      viewport[1] - (mouseState?.y ?? 0) * devicePixelRatio,
+      mouseState?.pressed ?? 0,
+    ]);
+  });
+
   // enable the texture
   gl.activeTexture(gl.TEXTURE0);
 
@@ -788,6 +804,7 @@ export function initWebGLRenderer(
     vertexShaderSource,
     fragmentShaderSource
   );
+  console.log({ fragmentShaderSource });
 
   // Collect all the info needed to use the shader program.
   // Look up which attribute our shader program is using
@@ -817,11 +834,13 @@ export function initWebGLRenderer(
       viewTransform = mat4.create(),
       backgroundPosition = BackgroundPosition.TopLeft,
       textureOffset = vec2.create(),
+      mouseState = { x: 0, y: 0, pressed: 0 },
     }: {
       viewport: vec2;
       viewTransform: mat4;
       backgroundPosition: BackgroundPosition;
       textureOffset: vec2;
+      mouseState?: { x: number; y: number; pressed: number };
     }) {
       if (!buffers) {
         throw new Error(
@@ -834,6 +853,7 @@ export function initWebGLRenderer(
         viewTransform,
         backgroundPosition,
         textureOffset,
+        mouseState,
       });
     },
     setRenderableRects: (renderableRects: RenderableRect[]) => {

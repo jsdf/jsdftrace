@@ -12,7 +12,7 @@ in vec4 aTexturePieceRect; // size of the texture piece in texture coordinate sp
 // as the rect is scaled, we need to scale the texture coordinates by the ratio of the textured area to the rect size.
 // We can also use this ratio to find the screen space size of the textured area, by multiplying the rect size in screen space by this ratio.
 in vec2 aRectTexturedAreaRatio;
-in vec2 aRectSize; // size of the rectangle in vertex coordinates (screen space)
+in vec4 aRect; // size of the rectangle in vertex coordinates {x, y, z:width, w:height}
 in vec2 aTextureOffset; // offset (translation) to apply to the texture in screen space
 
 uniform mat4 uModelViewMatrix;
@@ -22,9 +22,13 @@ uniform vec2 uModelViewScale; // scaling factor for the model view matrix, used 
 uniform vec2 uViewportSize; // Viewport size in pixels (e.g., vec2(800, 600))
 uniform vec2 uTextureOffset; // Offset to apply to the texture in screen space
 
+uniform vec3 uMouse; // x,y = mouse position in screen space, z = mouse button state (0.0f = up, 1.0f = down)
+
 out vec4 vColor;
 out vec2 vTextureCoord;
-out vec4 textureClippingCoords;
+out vec4 vTextureClippingCoords;
+out vec4 vScreenSpaceRect;
+flat out uint vHovered;
 
 /*
 enum BackgroundPosition {
@@ -49,7 +53,7 @@ vec2 screenspaceOffsetToTextureCoordOffset(
     vec2 texturePieceSizeInTextureSpace
 ) { 
     // Calculate the size of a screen pixel in rect space (e.g. how much of the rect does a pixel take up)
-    vec2 pixelSizeInRectSpace = vec2(1.0f, 1.0f) / aRectSize; // e.g. how much of the rect does a pixel take up
+    vec2 pixelSizeInRectSpace = vec2(1.0f, 1.0f) / aRect.zw; // e.g. how much of the rect does a pixel take up
 
     // Convert the screen pixel offset to a rect space offset
     vec2 rectSpaceOffset = pixelOffset * pixelSizeInRectSpace; // e.g how much of the rect does the pixel offset correspond to
@@ -71,7 +75,7 @@ vec2 scaleTexCoordsToConstantScreenSize(
 
     vec2 texturePieceCoords = texCoords;
 
-    // 2. offset by the top left of the piece within the texture
+    // 2. offset so the top left of the texture piece moves to the origin
 
     vec2 texturePieceTopLeft = aTexturePieceRect.xy;
     texturePieceCoords -= texturePieceTopLeft; 
@@ -87,7 +91,7 @@ vec2 scaleTexCoordsToConstantScreenSize(
     //  NOTE: as a result of this we then need to clip away the excess
     //  texture area, because when zooming in it will now include parts of the 
     //  texture that are not part of the texture piece we want to display.
-    //  this is handled in the fragment shader by applying the textureClippingCoords.
+    //  this is handled in the fragment shader by applying the vTextureClippingCoords.
     //  we divide by the rect texture ratio to scale the texture coordinates
 
     // scale the texture coordinates by the ratio of the textured area to the rect size
@@ -95,18 +99,50 @@ vec2 scaleTexCoordsToConstantScreenSize(
     // scale the texture coordinates by the model view scaling vector
     texturePieceCoords *= uModelViewScale;
 
-    // 4. undo offset
+    // 4. undo offset, moving the top left of the texture piece back to its original position
 
     texturePieceCoords += texturePieceTopLeft;
 
     return texturePieceCoords;
 }
 
+vec4 getScreenSpaceRect() {    // Define the four corners of the rectangle in object space
+    vec4 corners[4];
+    corners[0] = vec4(aRect.xy, 0.0f, 1.0f); // Bottom-left
+    corners[1] = vec4(aRect.x + aRect.z, aRect.y, 0.0f, 1.0f); // Bottom-right
+    corners[2] = vec4(aRect.x, aRect.y + aRect.w, 0.0f, 1.0f); // Top-left
+    corners[3] = vec4(aRect.x + aRect.z, aRect.y + aRect.w, 0.0f, 1.0f); // Top-right
+
+    // Transform the corners to clip space
+    for(int i = 0 ; i < 4 ; ++i) {
+        corners[i] = uProjectionMatrix * uModelViewMatrix * corners[i];
+    }
+
+    // Convert clip space to NDC
+    for(int i = 0 ; i < 4 ; ++i) {
+        corners[i] /= corners[i].w;
+    }
+
+    // Convert NDC to screen space
+    vec2 screenCorners[4];
+    for(int i = 0 ; i < 4 ; ++i) {
+        screenCorners[i] = (corners[i].xy * 0.5f + 0.5f) * uViewportSize;
+    }
+
+    // Compute the bounding box in screen space
+    vec2 minScreenSpace = min(min(screenCorners[0], screenCorners[1]), min(screenCorners[2], screenCorners[3]));
+    vec2 maxScreenSpace = max(max(screenCorners[0], screenCorners[1]), max(screenCorners[2], screenCorners[3]));
+
+    // Pass the screen space rectangle to the fragment shader
+    return vec4(minScreenSpace, maxScreenSpace);
+
+}
+
 void main(void) {
     gl_Position = uProjectionMatrix * uModelViewMatrix * aVertexPosition;
     vColor = aVertexColor;
 
-    textureClippingCoords = vec4(aTexturePieceRect.xy, (aTexturePieceRect.xy + aTexturePieceRect.zw));
+    vTextureClippingCoords = vec4(aTexturePieceRect.xy, (aTexturePieceRect.xy + aTexturePieceRect.zw));
 
     vTextureCoord = aTextureCoord;
 
@@ -124,7 +160,12 @@ void main(void) {
         vColor = vec4(1.0f, 0.0f, 0.0f, 1.0f); // error 
     }
 
-    if(uTextureOffset.x > 9999.0f) {
+    vScreenSpaceRect = getScreenSpaceRect();
+
+    // check if mouse pos is in screen space rect
+    vHovered = uMouse.x >= vScreenSpaceRect.x && uMouse.x <= vScreenSpaceRect.z && uMouse.y >= vScreenSpaceRect.y && uMouse.y <= vScreenSpaceRect.w ? 1u : 0u;
+
+    if(aTextureOffset.x > 9999.0f) {
         return;
     }
 }

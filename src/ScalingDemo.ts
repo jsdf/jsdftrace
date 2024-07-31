@@ -7,6 +7,7 @@ import { mat4, vec2 } from "gl-matrix";
 import * as datgui from "dat.gui";
 import { createTextRenderingWorkerPool } from "./textRenderingWorkerHost";
 import Vec2d from "./Vec2d";
+import { getCanvasMousePos } from "./canvasUtils";
 // import exampledata from "./exampledata.js";
 
 import createFPSCounter from "./FPSCounter";
@@ -15,10 +16,30 @@ import type { TextTextureAtlas } from "./textTextureAtlasRenderingUtils";
 
 const canvas = document.createElement("canvas");
 document.querySelector<HTMLDivElement>("#app")!.appendChild(canvas);
-canvas.width = window.innerWidth * devicePixelRatio;
-canvas.height = window.innerHeight * 0.8 * devicePixelRatio;
+canvas.width = (window.innerWidth - 10) * devicePixelRatio;
+canvas.height = (window.innerHeight - 10) * devicePixelRatio;
 canvas.style.width = `${canvas.width / devicePixelRatio}px`;
 canvas.style.height = `${canvas.height / devicePixelRatio}px`;
+
+const mouseState = {
+  pressed: 0,
+  x: 0,
+  y: 0,
+};
+canvas.addEventListener("mousedown", (e) => {
+  mouseState.pressed = 1;
+  const mousePos = getCanvasMousePos(e, canvas);
+  mouseState.x = mousePos.canvasMouseX;
+  mouseState.y = mousePos.canvasMouseY;
+});
+canvas.addEventListener("mousemove", (e) => {
+  const mousePos = getCanvasMousePos(e, canvas);
+  mouseState.x = mousePos.canvasMouseX;
+  mouseState.y = mousePos.canvasMouseY;
+});
+function expDecay(a: number, b: number, decay: number, dt: number) {
+  return b + (a - b) * Math.exp(-decay * dt);
+}
 
 const SPAN_HEIGHT = 20 * devicePixelRatio; //px
 const numRects = 10000;
@@ -108,7 +129,7 @@ console.log(rectInputs);
 
 const options = {
   translate: { x: 0, y: 0 },
-  zoom: 1,
+  zoom: 4,
   textureTranslate: { x: 16, y: 16 },
 };
 
@@ -259,10 +280,21 @@ function initRenderer(
       viewTransform,
       backgroundPosition: BackgroundPosition.TopLeft,
       textureOffset,
+      mouseState,
     });
   }
 
+  let lastTime = performance.now();
+  function update() {
+    const currentTime = performance.now();
+    const dt = currentTime - lastTime;
+    lastTime = currentTime;
+
+    mouseState.pressed = expDecay(mouseState.pressed, 0, 5, dt / 1000);
+  }
+
   return function animationLoop() {
+    update();
     render();
     fpsCounterOnFrame();
     requestAnimationFrame(animationLoop);

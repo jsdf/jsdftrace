@@ -34,7 +34,7 @@ export function configureRetinaCanvas(canvas: HTMLCanvasElement) {
 export function getCanvasMousePos(
   event: MouseEvent | WheelEvent,
   canvas: Node | null | void
-) {
+): { canvasMouseX: number; canvasMouseY: number } {
   const rect =
     canvas instanceof HTMLCanvasElement
       ? canvas.getBoundingClientRect()
