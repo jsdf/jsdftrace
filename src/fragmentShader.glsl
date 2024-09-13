@@ -75,9 +75,9 @@ void main(void) {
     if(distance < -2.0f) {
         // Inside the rounded rectangle
         color = vColor;
-    } else if(distance < 1.0f) {
+    } else if(distance < 0.0f) {
         // On the border
-        FragColor = vec4(0.0f, 0.0f, 0.0f, 1.0f);
+        FragColor = vHovered == 1u ? vec4(1.f, 1.f, 1.f, 1.f) : vec4(0.0f, 0.0f, 0.0f, 1.0f);
         return; // only output border color
     } else {
         // Outside the rounded rectangle
