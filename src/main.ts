@@ -6,6 +6,9 @@ switch (url.searchParams.get('demo')) {
     import('./ScalingDemo').then((mod) => mod.default());
     break;
 
+  case 'mondrian':
+    import('./MondrianDemo').then((mod) => mod.default());
+    break;
   case 'simple':
     import('./SimpleTexDemo').then((mod) => mod.default());
     break;

@@ -1,4 +1,4 @@
-import Rect from "./Rect";
+import Rect from './Rect';
 const DEBUG_USE_SMALL_TEXTURES = false; // to make it easier to test the behavior of exceeding the texture size
 const TEXTURE_SIZE_X = DEBUG_USE_SMALL_TEXTURES ? 1024 : 2048;
 const TEXTURE_SIZE_Y = DEBUG_USE_SMALL_TEXTURES ? 256 : 2048;
@@ -9,12 +9,12 @@ export function generateImageBitmapsForText(
   pixelRatio: number = 1
 ): Map<string, ImageBitmap> {
   const canvas = new OffscreenCanvas(128, 128);
-  const context = canvas.getContext("2d", {
+  const context = canvas.getContext('2d', {
     willReadFrequently: true,
     desynchronized: true,
   });
   if (!context) {
-    throw new Error("couldnt use 2d context");
+    throw new Error('couldnt use 2d context');
   }
 
   // Set actual size in memory (scaled to account for extra pixel density).
@@ -40,9 +40,9 @@ export function generateImageBitmapsForText(
       // Normalize coordinate system to use logical pixels.
       context.scale(scale, scale);
 
-      context.fillStyle = "transparent";
+      context.fillStyle = 'transparent';
       context.fillRect(0, 0, canvas.width, canvas.height);
-      context.fillStyle = "black";
+      context.fillStyle = 'black';
       context.font = font; // this was reset by the clearRect
       context.fillText(text, 0, metrics.actualBoundingBoxAscent);
 
@@ -53,12 +53,17 @@ export function generateImageBitmapsForText(
   );
 }
 
+function nextMacrotask() {
+  return new Promise((resolve) => setTimeout(resolve));
+}
+
 export async function generateImageBitmapsForTextAsync(
   strings: string[],
   textCanvasHeight?: number | null,
-  pixelRatio: number = 1
+  pixelRatio: number = 1,
+  chunkSize: number = 10, // how many to process per yield
+  yieldBetweenChunks: boolean = false
 ): Promise<Map<string, ImageBitmap>> {
-  const chunkSize = 10;
   const results = new Map();
   for (let i = 0; i < strings.length; i += chunkSize) {
     const chunk = strings.slice(i, i + chunkSize);
@@ -70,7 +75,9 @@ export async function generateImageBitmapsForTextAsync(
     for (const [key, value] of chunkResults) {
       results.set(key, value);
     }
-    // await nextMacrotask();
+    if (yieldBetweenChunks) {
+      await nextMacrotask();
+    }
   }
   return results;
 }
@@ -86,12 +93,12 @@ export function createTextureAtlases(
 ): TextTextureAtlas[] {
   const textureAtlases: TextTextureAtlas[] = [];
   let canvas = new OffscreenCanvas(TEXTURE_SIZE_X, TEXTURE_SIZE_Y);
-  let context = canvas.getContext("2d", {
+  let context = canvas.getContext('2d', {
     willReadFrequently: true,
     desynchronized: true,
   });
   if (!context) {
-    throw new Error("couldnt use 2d context");
+    throw new Error('couldnt use 2d context');
   }
 
   const inputs = Array.from(singleTextImages.entries());
@@ -115,7 +122,7 @@ export function createTextureAtlases(
         imageBitmap.height > TEXTURE_SIZE_Y ||
         imageBitmap.width > TEXTURE_SIZE_X
       ) {
-        throw new Error("Image too large to fit in texture atlas");
+        throw new Error('Image too large to fit in texture atlas');
       }
       if (currentX + imageBitmap.width > TEXTURE_SIZE_X) {
         // width of this image extends past the edge of the canvas,
@@ -164,4 +171,51 @@ export function createTextTextureAtlases(
   // pack the image bitmaps into one or more texture atlases, and return them
   // along with the mapping from text labels to texture coordinates
   return createTextureAtlases(singleTextImages);
+}
+
+// display each texture atlas in a separate canvas for debugging
+export function debugDrawTextureAtlases(
+  textureAtlases: TextTextureAtlas[],
+  container: HTMLElement
+) {
+  textureAtlases.forEach((textureAtlas, i) => {
+    const h1 = document.createElement('h2');
+    h1.textContent = 'Texture Atlas ' + i;
+    const div = document.createElement('div');
+    div.append(h1);
+    container.appendChild(div);
+    const canvas = document.createElement('canvas');
+    canvas.style.border = '1px solid black';
+    div.appendChild(canvas);
+    canvas.width = textureAtlas.image.width;
+    canvas.height = textureAtlas.image.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      throw new Error('couldnt get 2d context');
+    }
+    ctx.drawImage(textureAtlas.image, 0, 0);
+    textureAtlas.mapping.forEach((rect, label) => {
+      ctx.strokeStyle = 'red';
+      ctx.strokeRect(
+        rect.position.x,
+        rect.position.y,
+        rect.size.x,
+        rect.size.y
+      );
+      ctx.font = '10px sans-serif';
+      ctx.fillStyle = 'white';
+      ctx.fillText(
+        `${label.slice(3)} {${rect.size.x}x${rect.size.y}}`,
+        rect.position.x,
+        rect.position.y + 18
+      );
+    });
+    const details = document.createElement('details');
+    details.innerHTML = `<summary>rects</summary><pre>${JSON.stringify(
+      [...textureAtlas.mapping.entries()],
+      null,
+      2
+    )}</pre>`;
+    div.appendChild(details);
+  });
 }

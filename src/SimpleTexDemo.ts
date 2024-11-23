@@ -1,22 +1,22 @@
-import "./style.css";
-import { initWebGLRenderer } from "./webglRenderer";
-import Rect from "./Rect";
-import { getRandomColor } from "./webglColorUtils";
-import { mat4 } from "gl-matrix";
+import './style.css';
+import { initWebGLRenderer } from './webglRenderer';
+import Rect from './Rect';
+import { getRandomColor } from './webglColorUtils';
+import { mat4 } from 'gl-matrix';
 
-import * as datgui from "dat.gui";
-import Vec2d from "./Vec2d";
+import * as datgui from 'dat.gui';
+import Vec2d from './Vec2d';
 // import exampledata from "./exampledata.js";
 
-import rockoImageURL from "./assets/rocko.png";
+import rockoImageURL from './assets/rocko.png';
 
-const canvas = document.createElement("canvas");
-document.querySelector<HTMLDivElement>("#app")!.appendChild(canvas);
+const canvas = document.createElement('canvas');
+document.querySelector<HTMLDivElement>('#app')!.appendChild(canvas);
 canvas.width = window.innerWidth * 0.95;
 canvas.height = window.innerHeight * 0.8;
-const gl = canvas.getContext("webgl2");
+const gl = canvas.getContext('webgl2');
 if (!gl) {
-  throw new Error("couldnt use webgl2");
+  throw new Error('couldnt use webgl2');
 }
 const renderer = initWebGLRenderer(gl);
 
@@ -28,16 +28,16 @@ const options = {
 };
 
 const gui = new datgui.GUI();
-const transformGUI = gui.addFolder("Transform");
-transformGUI.add(options.transform, "x").min(-1).max(1).step(0.01);
-transformGUI.add(options.transform, "y").min(-1).max(1).step(0.01);
-const scaleGUI = gui.addFolder("Scale");
-scaleGUI.add(options, "scale").min(0.1).max(2).step(0.01);
-const textureGUI = gui.addFolder("Texture");
+const transformGUI = gui.addFolder('Transform');
+transformGUI.add(options.transform, 'x').min(-1).max(1).step(0.01);
+transformGUI.add(options.transform, 'y').min(-1).max(1).step(0.01);
+const scaleGUI = gui.addFolder('Scale');
+scaleGUI.add(options, 'scale').min(0.1).max(2).step(0.01);
+const textureGUI = gui.addFolder('Texture');
 textureGUI.open();
-textureGUI.add(options, "textureScale").min(0.1).max(2).step(0.01);
-textureGUI.add(options.textureOffset, "x").min(-1).max(1).step(0.01);
-textureGUI.add(options.textureOffset, "y").min(-1).max(1).step(0.01);
+textureGUI.add(options, 'textureScale').min(0.1).max(2).step(0.01);
+textureGUI.add(options.textureOffset, 'x').min(-1).max(1).step(0.01);
+textureGUI.add(options.textureOffset, 'y').min(-1).max(1).step(0.01);
 
 function animationLoop() {
   const transformationMatrix = mat4.create();
@@ -116,7 +116,7 @@ export default async function main() {
     .then((blob) => createImageBitmap(blob));
 
   if (!gl) {
-    throw new Error("couldnt use webgl2");
+    throw new Error('couldnt use webgl2');
   }
 
   const rockoTexture = imageBitmapToWebGLTexture(rockoImage, gl);

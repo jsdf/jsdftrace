@@ -1,21 +1,21 @@
-import "./style.css";
-import { BackgroundPosition, initWebGLRenderer } from "./webglRenderer";
-import Rect from "./Rect";
-import { getRandomColor } from "./webglColorUtils";
-import { mat4, vec2 } from "gl-matrix";
+import './style.css';
+import { BackgroundPosition, initWebGLRenderer } from './webglRenderer';
+import Rect from './Rect';
+import { getRandomColor } from './webglColorUtils';
+import { mat4, vec2 } from 'gl-matrix';
 
-import * as datgui from "dat.gui";
-import { createTextRenderingWorkerPool } from "./textRenderingWorkerHost";
-import Vec2d from "./Vec2d";
-import { getCanvasMousePos } from "./canvasUtils";
+import * as datgui from 'dat.gui';
+import { createTextRenderingWorkerPool } from './textRenderingWorkerHost';
+import Vec2d from './Vec2d';
+import { getCanvasMousePos } from './canvasUtils';
 // import exampledata from "./exampledata.js";
 
-import createFPSCounter from "./FPSCounter";
-import range from "./range";
-import type { TextTextureAtlas } from "./textTextureAtlasRenderingUtils";
+import createFPSCounter from './FPSCounter';
+import range from './range';
+import type { TextTextureAtlas } from './textTextureAtlasRenderingUtils';
 
-const canvas = document.createElement("canvas");
-document.querySelector<HTMLDivElement>("#app")!.appendChild(canvas);
+const canvas = document.createElement('canvas');
+document.querySelector<HTMLDivElement>('#app')!.appendChild(canvas);
 canvas.width = (window.innerWidth - 10) * devicePixelRatio;
 canvas.height = (window.innerHeight - 10) * devicePixelRatio;
 canvas.style.width = `${canvas.width / devicePixelRatio}px`;
@@ -26,13 +26,13 @@ const mouseState = {
   x: 0,
   y: 0,
 };
-canvas.addEventListener("mousedown", (e) => {
+canvas.addEventListener('mousedown', (e) => {
   mouseState.pressed = 1;
   const mousePos = getCanvasMousePos(e, canvas);
   mouseState.x = mousePos.canvasMouseX;
   mouseState.y = mousePos.canvasMouseY;
 });
-canvas.addEventListener("mousemove", (e) => {
+canvas.addEventListener('mousemove', (e) => {
   const mousePos = getCanvasMousePos(e, canvas);
   mouseState.x = mousePos.canvasMouseX;
   mouseState.y = mousePos.canvasMouseY;
@@ -48,30 +48,30 @@ const numLabels = 1000;
 
 const generateRandomLabel = (() => {
   const words = [
-    "Apple",
-    "Banana",
-    "Cherry",
-    "Date",
-    "Elderberry",
-    "Fig",
-    "Grape",
-    "Honeydew",
-    "Kiwi",
-    "Lemon",
-    "Mango",
-    "Nectarine",
-    "Orange",
-    "Papaya",
-    "Quince",
-    "Raspberry",
-    "Strawberry",
-    "Tangerine",
-    "Ugli",
-    "Vanilla",
-    "Watermelon",
-    "Xigua",
-    "Yellow",
-    "Zucchini",
+    'Apple',
+    'Banana',
+    'Cherry',
+    'Date',
+    'Elderberry',
+    'Fig',
+    'Grape',
+    'Honeydew',
+    'Kiwi',
+    'Lemon',
+    'Mango',
+    'Nectarine',
+    'Orange',
+    'Papaya',
+    'Quince',
+    'Raspberry',
+    'Strawberry',
+    'Tangerine',
+    'Ugli',
+    'Vanilla',
+    'Watermelon',
+    'Xigua',
+    'Yellow',
+    'Zucchini',
   ];
   function randomWord() {
     return words[Math.floor(Math.random() * words.length)];
@@ -89,7 +89,7 @@ function imageBitmapToWebGLTexture(
 ): WebGLTexture {
   const texture = gl.createTexture();
   if (!texture) {
-    throw new Error("couldnt create texture");
+    throw new Error('couldnt create texture');
   }
 
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
@@ -130,73 +130,32 @@ console.log(rectInputs);
 const options = {
   translate: { x: 0, y: 0 },
   zoom: 4,
+  zoomInterp: 4,
   textureTranslate: { x: 16, y: 16 },
 };
 
 const gui = new datgui.GUI();
-const viewTransformFolder = gui.addFolder("View Transform");
+const viewTransformFolder = gui.addFolder('View Transform');
 viewTransformFolder.open();
-viewTransformFolder.add(options.translate, "x").min(-1).max(1).step(0.01);
-viewTransformFolder.add(options.translate, "y").min(-1).max(1).step(0.01);
-viewTransformFolder.add(options, "zoom").min(0.01).max(16).step(0.01);
-const textureTransformFolder = gui.addFolder("Texture Transform");
+viewTransformFolder.add(options.translate, 'x').min(-1).max(1).step(0.01);
+viewTransformFolder.add(options.translate, 'y').min(-1).max(1).step(0.01);
+viewTransformFolder.add(options, 'zoom').min(0.01).max(16).step(0.01);
+viewTransformFolder.add(options, 'zoomInterp').min(0.01).max(16).step(0.01);
+const textureTransformFolder = gui.addFolder('Texture Transform');
 textureTransformFolder.open();
 textureTransformFolder
-  .add(options.textureTranslate, "x")
+  .add(options.textureTranslate, 'x')
   .min(-100)
   .max(100)
   .step(0.1);
 textureTransformFolder
-  .add(options.textureTranslate, "y")
+  .add(options.textureTranslate, 'y')
   .min(-100)
   .max(100)
   .step(0.1);
 
 const fpsCounterOnFrame = createFPSCounter();
 
-function debugDrawTextureAtlases(textureAtlases: TextTextureAtlas[]) {
-  // display each texture atlas in a separate canvas for debugging
-  textureAtlases.forEach((textureAtlas, i) => {
-    const h1 = document.createElement("h2");
-    h1.textContent = "Texture Atlas " + i;
-    const div = document.createElement("div");
-    div.append(h1);
-    document.querySelector<HTMLDivElement>("#app")!.appendChild(div);
-    const canvas = document.createElement("canvas");
-    canvas.style.border = "1px solid black";
-    div.appendChild(canvas);
-    canvas.width = textureAtlas.image.width;
-    canvas.height = textureAtlas.image.height;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) {
-      throw new Error("couldnt get 2d context");
-    }
-    ctx.drawImage(textureAtlas.image, 0, 0);
-    textureAtlas.mapping.forEach((rect, label) => {
-      ctx.strokeStyle = "red";
-      ctx.strokeRect(
-        rect.position.x,
-        rect.position.y,
-        rect.size.x,
-        rect.size.y
-      );
-      ctx.font = "10px sans-serif";
-      ctx.fillStyle = "white";
-      ctx.fillText(
-        `${label.slice(3)} {${rect.size.x}x${rect.size.y}}`,
-        rect.position.x,
-        rect.position.y + 18
-      );
-    });
-    const details = document.createElement("details");
-    details.innerHTML = `<summary>rects</summary><pre>${JSON.stringify(
-      [...textureAtlas.mapping.entries()],
-      null,
-      2
-    )}</pre>`;
-    div.appendChild(details);
-  });
-}
 function initRenderer(
   gl: WebGL2RenderingContext,
   textureAtlases: TextTextureAtlas[]
@@ -240,7 +199,7 @@ function initRenderer(
         .map((rectInput) => {
           const labelInAtlas = labelsInTextureAtlases.get(rectInput.label);
           if (!labelInAtlas) {
-            throw new Error("couldnt find label in texture atlases");
+            throw new Error('couldnt find label in texture atlases');
           }
           return {
             backgroundColor: getRandomColor(),
@@ -267,7 +226,7 @@ function initRenderer(
     mat4.scale(
       viewTransform, // destination matrix
       viewTransform, // matrix to scale
-      [options.zoom, options.zoom, 1] // scaling vector
+      [options.zoomInterp, options.zoomInterp, 1] // scaling vector
     );
 
     const textureOffset = vec2.fromValues(
@@ -291,6 +250,14 @@ function initRenderer(
     lastTime = currentTime;
 
     mouseState.pressed = expDecay(mouseState.pressed, 0, 5, dt / 1000);
+
+    options.zoomInterp = expDecay(
+      options.zoomInterp,
+      options.zoom,
+      16,
+      dt / 1000
+    );
+    gui.updateDisplay();
   }
 
   return function animationLoop() {
@@ -315,9 +282,9 @@ export default async function main() {
 
   textRenderingWorkerPool.release();
 
-  const gl = canvas.getContext("webgl2");
+  const gl = canvas.getContext('webgl2');
   if (!gl) {
-    throw new Error("couldnt use webgl2");
+    throw new Error('couldnt use webgl2');
   }
   const animationLoop = initRenderer(gl, textureAtlases);
   animationLoop();

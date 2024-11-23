@@ -87,12 +87,13 @@ void main(void) {
 
     color = mix(color, mouseGlowColor, mouseGlowColor.a);
 
-    if(clip) {
+    if(false) {
         // just output background color
         FragColor = color;
     } else {
         // sample the texture 
         vec4 texel = texture(uTextureSampler, vTextureCoord);
-        FragColor = mix(color, texel, texel.a);
+        float texelA = texel.a;
+        FragColor = mix(color, texel, texelA);
     }
 }
