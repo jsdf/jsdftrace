@@ -87,7 +87,7 @@ void main(void) {
 
     color = mix(color, mouseGlowColor, mouseGlowColor.a);
 
-    if(false) {
+    if(clip) {
         // just output background color
         FragColor = color;
     } else {
