@@ -1,4 +1,4 @@
-import { Mondrian, Rect } from './Mondrian';
+import { Mondrian, Rect } from './mondrian/Mondrian';
 import Stats from 'stats.js';
 
 import * as datgui from 'dat.gui';

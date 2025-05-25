@@ -2,12 +2,12 @@ import './style.css';
 import { mat4, vec2, vec3 } from 'gl-matrix';
 
 import * as datgui from 'dat.gui';
-import { generateImageBitmapsForText } from './textTextureAtlasRenderingUtils';
+import { generateImageBitmapsForText } from './mondrian/textTextureAtlasRenderingUtils';
 // import exampledata from "./exampledata.js";
 
 import createFPSCounter from './FPSCounter';
-import { getRandomColor } from './webglColorUtils';
-import { nullthrows } from './nullthrows';
+import { getRandomColor } from './mondrian/webglColorUtils';
+import { nullthrows } from './mondrian/nullthrows';
 
 type GLMatrixRect = {
   position: vec2;

@@ -8,16 +8,15 @@ import {
   StateForLayout,
 } from "./drawUtils";
 import memoize from "memoize-one";
-import memoizeWeak from "./memoizeWeak";
+import memoizeWeak from "./mondrian/memoizeWeak";
 import {
   initWebGLRenderer,
-  rectsToBuffers,
-  RenderableRect,
-  WebGLRenderBuffers,
-} from "./webglRenderer";
-import { getColorForMeasure } from "./webglColorUtils";
-import { nullthrows } from "./nullthrows";
-import Rect from "./Rect";
+  type WebGLRenderer,
+} from "./mondrian/webglRenderer";
+import { getColorForMeasure } from "./drawUtils";
+import { nullthrows } from "./mondrian/nullthrows";
+import Rect from "./mondrian/Rect";
+import Vec2d from "./mondrian/Vec2d";
 
 export const CANVAS_DRAW_TEXT = true;
 export const CANVAS_DRAW_TEXT_MIN_PX = 35;

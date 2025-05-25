@@ -2,7 +2,21 @@
 
 import debounce from "debounce";
 import type { ScaleOptions } from "./constants";
-import type { HandleStateChangeFn } from "./CanvasWebGLTraceRenderer";
+import type { RenderableMeasure } from "./calculateTraceLayout";
+import type { Measure } from "./drawUtils";
+
+export type HandleStateChangeFn = (
+  changes: Partial<{
+    zoom: number;
+    center: number;
+    dragging: boolean;
+    dragMoved: boolean;
+    hovered: RenderableMeasure<Measure> | null | undefined;
+    selection: RenderableMeasure<Measure> | null | undefined;
+    zooming: boolean;
+    verticalOffset: number;
+  }>
+) => void;
 
 export type MouseEventWithTarget = {
   currentTarget: {

@@ -1,18 +1,18 @@
 import './style.css';
-import { BackgroundPosition, initWebGLRenderer } from './webglRenderer';
-import Rect from './Rect';
-import { getRandomColor } from './webglColorUtils';
+import { BackgroundPosition, initWebGLRenderer } from './mondrian/webglRenderer';
+import Rect from './mondrian/Rect';
+import { getRandomColor } from './mondrian/webglColorUtils';
 import { mat4, vec2 } from 'gl-matrix';
 
 import * as datgui from 'dat.gui';
-import { createTextRenderingWorkerPool } from './textRenderingWorkerHost';
-import Vec2d from './Vec2d';
+import { createTextRenderingWorkerPool } from './mondrian/textRenderingWorkerHost';
+import Vec2d from './mondrian/Vec2d';
 import { getCanvasMousePos } from './canvasUtils';
 // import exampledata from "./exampledata.js";
 
 import createFPSCounter from './FPSCounter';
-import range from './range';
-import type { TextTextureAtlas } from './textTextureAtlasRenderingUtils';
+import range from './mondrian/range';
+import type { TextTextureAtlas } from './mondrian/textTextureAtlasRenderingUtils';
 
 const canvas = document.createElement('canvas');
 document.querySelector<HTMLDivElement>('#app')!.appendChild(canvas);

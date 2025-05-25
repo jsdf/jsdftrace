@@ -1,6 +1,3 @@
-import type { Measure } from './drawUtils';
-import memoizeWeak from './memoizeWeak';
-
 export type Color = [number, number, number, number];
 
 export function getRandomColor(): Color {
@@ -11,7 +8,3 @@ export function getRandomColor(): Color {
     1.0,
   ];
 }
-
-export const getColorForMeasure: (measure: Measure) => Color = memoizeWeak(
-  (_measure) => getRandomColor()
-);

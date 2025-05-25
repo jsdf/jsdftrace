@@ -1,11 +1,11 @@
 import './style.css';
-import { initWebGLRenderer } from './webglRenderer';
-import Rect from './Rect';
-import { getRandomColor } from './webglColorUtils';
-import { mat4 } from 'gl-matrix';
+import { initWebGLRenderer } from './mondrian/webglRenderer';
+import Rect from './mondrian/Rect';
+import { getRandomColor } from './mondrian/webglColorUtils';
+import { mat4, vec2 } from 'gl-matrix';
 
 import * as datgui from 'dat.gui';
-import Vec2d from './Vec2d';
+import Vec2d from './mondrian/Vec2d';
 // import exampledata from "./exampledata.js";
 
 import rockoImageURL from './assets/rocko.png';
@@ -73,7 +73,11 @@ function animationLoop() {
     0,
   ]);
 
-  renderer.render(transformationMatrix, textureTransformMatrix);
+  renderer.render({
+    viewport: vec2.fromValues(canvas.width, canvas.height),
+    viewTransform: transformationMatrix,
+    textureOffset: vec2.fromValues(options.textureOffset.x, options.textureOffset.y),
+  });
   requestAnimationFrame(animationLoop);
 }
 
@@ -134,6 +138,7 @@ export default async function main() {
         position: new Vec2d(0, 0),
         size: new Vec2d(rockoImage.width, rockoImage.height),
       }),
+      textureOffset: new Vec2d(0, 0),
     },
   ]);
 

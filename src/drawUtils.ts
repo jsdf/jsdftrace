@@ -1,9 +1,8 @@
 import type { RenderableMeasure } from "./calculateTraceLayout";
 import { ScaleOptions } from "./constants";
 
-import memoizeWeak from "./memoizeWeak";
-
-type Color = [number, number, number];
+import memoizeWeak from "./mondrian/memoizeWeak";
+import { getRandomColor, type Color } from "./mondrian/webglColorUtils";
 
 export type StateForLayout = {
   center: number;
@@ -30,13 +29,9 @@ export type Layout = {
 
 export type RenderableTrace = Array<RenderableMeasure<Measure>>;
 
-function getRandomColor(): Color {
-  return [
-    Math.floor((1 - Math.random() * 0.5) * 256),
-    Math.floor((1 - Math.random() * 0.7) * 256),
-    Math.floor((1 - Math.random() * 0.3) * 256),
-  ];
-}
+export const getColorForMeasure: (measure: Measure) => Color = memoizeWeak(
+  (_measure) => getRandomColor()
+);
 
 export function getLayout(
   state: StateForLayout,
